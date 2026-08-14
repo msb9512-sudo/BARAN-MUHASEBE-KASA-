@@ -11,9 +11,15 @@ import {
   Check,
   Stamp,
   Sparkles,
+  Calendar,
+  AlertTriangle,
+  ShieldAlert,
+  Database,
+  X,
 } from 'lucide-react';
 import { PosDevice, ExpenseCategory } from '../types';
 import { RestaurantProfile } from '../utils/storage';
+import { formatDateTR, getTodayIsoDate } from '../utils/formatters';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -25,6 +31,9 @@ interface SettingsModalProps {
   profile: RestaurantProfile;
   onUpdateProfile: (profile: RestaurantProfile) => void;
   onResetData: () => void;
+  selectedDate?: string;
+  onResetAllFinancialData?: () => void;
+  onResetSingleDay?: (date: string) => void;
 }
 
 export const SettingsModal: React.FC<SettingsModalProps> = ({
@@ -37,8 +46,11 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   profile,
   onUpdateProfile,
   onResetData,
+  selectedDate = getTodayIsoDate(),
+  onResetAllFinancialData,
+  onResetSingleDay,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'pos' | 'categories'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'pos' | 'categories' | 'system'>('profile');
   const [profileForm, setProfileForm] = useState<RestaurantProfile>({
     ...profile,
     companyTitle: profile.companyTitle || profile.name || '',
@@ -53,6 +65,17 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const [devicesList, setDevicesList] = useState(posDevices);
   const [categoriesList, setCategoriesList] = useState(categories);
   const [savedSuccess, setSavedSuccess] = useState(false);
+  const [targetDayToReset, setTargetDayToReset] = useState<string>(selectedDate || getTodayIsoDate());
+
+  const [confirmModal, setConfirmModal] = useState<{
+    isOpen: boolean;
+    type: 'single_day' | 'clean_install' | 'factory_reset';
+    targetDate?: string;
+    title: string;
+    description: string;
+    impacts: string[];
+    confirmButtonText: string;
+  } | null>(null);
 
   if (!isOpen) return null;
 
@@ -112,12 +135,26 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   const handleAddCategory = () => {
     const newCat: ExpenseCategory = {
       id: `cat-${Date.now()}`,
-      name: 'Yeni Gider Kategorisi',
+      name: 'Yeni Kategori',
       type: 'kasa',
     };
     const updated = [...categoriesList, newCat];
     setCategoriesList(updated);
     onUpdateCategories(updated);
+  };
+
+  const handleClearAllCategories = () => {
+    if (window.confirm('Tüm gider kategorilerini silmek ve listeyi tamamen temizlemek istediğinize emin misiniz?')) {
+      setCategoriesList([]);
+      onUpdateCategories([]);
+    }
+  };
+
+  const handleClearAllPos = () => {
+    if (window.confirm('Tüm POS cihazı tanımlarını silmek istediğinize emin misiniz?')) {
+      setDevicesList([]);
+      onUpdatePosDevices([]);
+    }
   };
 
   const handleUpdateCat = (idx: number, name: string) => {
@@ -195,6 +232,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Tag className="w-3.5 h-3.5" />
             <span>Gider Kategorileri ({categoriesList.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('system')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+              activeTab === 'system'
+                ? 'bg-orange-600 text-white shadow-sm'
+                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+            }`}
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span>Veri & Sıfırlama</span>
           </button>
         </div>
 
@@ -387,46 +436,64 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {activeTab === 'pos' && (
           <div className="space-y-3 text-xs font-mono">
             <div className="flex items-center justify-between">
-              <span className="text-gray-400">Restorandaki aktif POS cihazları listesi:</span>
-              <button
-                onClick={handleAddPos}
-                className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ POS Cihazı Ekle</span>
-              </button>
+              <span className="text-gray-400">Restorandaki aktif POS cihazları ({devicesList.length}):</span>
+              <div className="flex items-center space-x-2">
+                {devicesList.length > 0 && (
+                  <button
+                    onClick={handleClearAllPos}
+                    className="text-xs bg-[#21262d] hover:bg-rose-950/40 text-gray-400 hover:text-rose-400 font-semibold px-2.5 py-1.5 rounded-lg border border-[#30363d] cursor-pointer"
+                  >
+                    Tümünü Sil
+                  </button>
+                )}
+                <button
+                  onClick={handleAddPos}
+                  className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ POS Cihazı Ekle</span>
+                </button>
+              </div>
             </div>
 
-            <div className="space-y-2">
-              {devicesList.map((device, idx) => (
-                <div
-                  key={device.id || idx}
-                  className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d] flex items-center space-x-2"
-                >
-                  <CreditCard className="w-4 h-4 text-orange-400 flex-shrink-0" />
-                  <input
-                    type="text"
-                    value={device.name}
-                    onChange={(e) => handleUpdatePos(idx, 'name', e.target.value)}
-                    placeholder="Cihaz Adı (Örn: Garanti POS 1)"
-                    className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
-                  />
-                  <input
-                    type="text"
-                    value={device.bankName}
-                    onChange={(e) => handleUpdatePos(idx, 'bankName', e.target.value)}
-                    placeholder="Banka Adı"
-                    className="w-32 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={() => handleDeletePos(idx)}
-                    className="text-gray-500 hover:text-rose-400 p-1 transition cursor-pointer"
+            {devicesList.length === 0 ? (
+              <div className="p-6 rounded-lg bg-[#0d1117] border border-[#30363d] text-center text-gray-500 space-y-1">
+                <CreditCard className="w-6 h-6 mx-auto text-gray-600 mb-2" />
+                <p className="text-gray-300 font-semibold">Tanımlı POS cihazı bulunmuyor</p>
+                <p className="text-[11px] text-gray-500">POS cihazı eklemek için yukarıdaki '+ POS Cihazı Ekle' butonuna basabilirsiniz.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {devicesList.map((device, idx) => (
+                  <div
+                    key={device.id || idx}
+                    className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d] flex items-center space-x-2"
                   >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <CreditCard className="w-4 h-4 text-orange-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={device.name}
+                      onChange={(e) => handleUpdatePos(idx, 'name', e.target.value)}
+                      placeholder="Cihaz Adı (Örn: Garanti POS 1)"
+                      className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
+                    />
+                    <input
+                      type="text"
+                      value={device.bankName}
+                      onChange={(e) => handleUpdatePos(idx, 'bankName', e.target.value)}
+                      placeholder="Banka Adı"
+                      className="w-32 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => handleDeletePos(idx)}
+                      className="text-gray-500 hover:text-rose-400 p-1 transition cursor-pointer"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
@@ -434,62 +501,252 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
         {activeTab === 'categories' && (
           <div className="space-y-3 text-xs font-mono">
             <div className="flex items-center justify-between">
-              <span className="text-gray-400">Kasa gider kategorileri:</span>
-              <button
-                onClick={handleAddCategory}
-                className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ Kategori Ekle</span>
-              </button>
+              <span className="text-gray-400">Kasa gider kategorileri ({categoriesList.length}):</span>
+              <div className="flex items-center space-x-2">
+                {categoriesList.length > 0 && (
+                  <button
+                    onClick={handleClearAllCategories}
+                    className="text-xs bg-[#21262d] hover:bg-rose-950/40 text-gray-400 hover:text-rose-400 font-semibold px-2.5 py-1.5 rounded-lg border border-[#30363d] cursor-pointer"
+                  >
+                    Tümünü Temizle
+                  </button>
+                )}
+                <button
+                  onClick={handleAddCategory}
+                  className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-3 py-1.5 rounded-lg shadow-xs cursor-pointer flex items-center space-x-1"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Kategori Ekle</span>
+                </button>
+              </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {categoriesList.map((cat, idx) => (
-                <div
-                  key={cat.id || idx}
-                  className="p-2.5 rounded-lg bg-[#0d1117] border border-[#30363d] flex items-center space-x-2"
-                >
-                  <Tag className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
-                  <input
-                    type="text"
-                    value={cat.name}
-                    onChange={(e) => handleUpdateCat(idx, e.target.value)}
-                    className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
-                  />
-                  <button
-                    onClick={() => handleDeleteCat(idx)}
-                    className="text-gray-500 hover:text-rose-400 p-1 transition cursor-pointer"
+            {categoriesList.length === 0 ? (
+              <div className="p-6 rounded-lg bg-[#0d1117] border border-[#30363d] text-center text-gray-500 space-y-1">
+                <Tag className="w-6 h-6 mx-auto text-gray-600 mb-2" />
+                <p className="text-gray-300 font-semibold">Tanımlı kategori bulunmuyor (Tertemiz Liste)</p>
+                <p className="text-[11px] text-gray-500">Gider girerken kategori adını serbestçe yazabilir veya '+ Kategori Ekle' butonundan ekleyebilirsiniz.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {categoriesList.map((cat, idx) => (
+                  <div
+                    key={cat.id || idx}
+                    className="p-2.5 rounded-lg bg-[#0d1117] border border-[#30363d] flex items-center space-x-2"
                   >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
+                    <Tag className="w-3.5 h-3.5 text-orange-400 flex-shrink-0" />
+                    <input
+                      type="text"
+                      value={cat.name}
+                      onChange={(e) => handleUpdateCat(idx, e.target.value)}
+                      className="flex-1 bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1 text-xs text-white focus:border-orange-500 focus:outline-none"
+                    />
+                    <button
+                      onClick={() => handleDeleteCat(idx)}
+                      className="text-gray-500 hover:text-rose-400 p-1 transition cursor-pointer"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
 
-        {/* Reset Data Warning Box */}
-        <div className="pt-4 border-t border-[#30363d] flex items-center justify-between text-xs font-mono">
-          <div>
-            <div className="font-semibold text-gray-300">Temiz Kuruluma Sıfırla</div>
-            <p className="text-[11px] text-gray-500">Tüm verileri temizleyip sıfır kurulum haline döndürür.</p>
-          </div>
+        {/* Tab 4: Veri & Sıfırlama */}
+        {activeTab === 'system' && (
+          <div className="space-y-4 text-xs font-mono">
+            <div>
+              <h4 className="font-bold text-white uppercase tracking-wider mb-1">
+                Veri Yönetimi ve Sıfırlama Seçenekleri
+              </h4>
+              <p className="text-gray-400 text-[11px]">
+                Test sürecinde tek bir günün hareketlerini silebilir veya tüm operasyonel verileri sıfırlayabilirsiniz.
+              </p>
+            </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              if (window.confirm('Tüm verileri temizleyip sıfır kurulum haline getirmek istediğinize emin misiniz?')) {
-                onResetData();
-                onClose();
-              }
-            }}
-            className="text-rose-400 hover:text-rose-300 font-bold border border-rose-500/30 px-3 py-1.5 rounded-lg hover:bg-rose-500/10 transition cursor-pointer"
-          >
-            Temiz Kuruluma Sıfırla
-          </button>
-        </div>
+            {/* 1. Gün Gün Sıfırlama */}
+            <div className="p-3.5 rounded-xl bg-[#0d1117] border border-orange-500/30 space-y-3">
+              <div className="flex items-center space-x-2 text-orange-400 font-bold">
+                <Calendar className="w-4 h-4" />
+                <span className="uppercase text-white">1. Gün Gün Sıfırlama</span>
+              </div>
+              <p className="text-[11px] text-gray-300">
+                Seçtiğiniz tarihe ait Vega hasılatını, POS Z dökümlerini ve kasa giderlerini sıfırlar. Diğer günleriniz korunur.
+              </p>
+              <div className="flex items-center space-x-2 pt-1">
+                <input
+                  type="date"
+                  value={targetDayToReset}
+                  onChange={(e) => setTargetDayToReset(e.target.value)}
+                  className="bg-[#161b22] border border-[#30363d] rounded px-3 py-1.5 text-xs text-white focus:border-orange-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      type: 'single_day',
+                      targetDate: targetDayToReset,
+                      title: `${formatDateTR(targetDayToReset)} Gününü Sıfırla`,
+                      description: `${formatDateTR(targetDayToReset)} tarihli günün tüm operasyonel kasa ve ciro hareketleri temizlenecektir.`,
+                      impacts: [
+                        'Seçili günün Vega hasılat dökümü silinir.',
+                        'Seçili günün POS Z raporları silinir.',
+                        'Seçili günün kasa masrafları ve faturaları silinir.',
+                      ],
+                      confirmButtonText: `${formatDateTR(targetDayToReset)} Gününü Sıfırla`,
+                    });
+                  }}
+                  className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 text-white font-bold rounded text-xs transition cursor-pointer flex items-center space-x-1"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Seçili Günü Sıfırla</span>
+                </button>
+              </div>
+            </div>
+
+            {/* 2. Temiz Kuruluma Sıfırla & Fabrika Ayarları */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="p-3.5 rounded-xl bg-[#0d1117] border border-emerald-500/30 flex flex-col justify-between space-y-2">
+                <div>
+                  <div className="flex items-center space-x-1.5 text-emerald-400 font-bold mb-1">
+                    <Database className="w-3.5 h-3.5" />
+                    <span className="text-white uppercase">2. Temiz Kuruluma Sıfırla</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300">
+                    Şirket kaşesi, POS cihazları ve kategoriler <strong className="text-emerald-400">KORUNUR</strong>. Tüm kasa günleri ve harcamalar sıfırlanır.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      type: 'clean_install',
+                      title: 'Temiz Kuruluma Sıfırla (Hareketleri Temizle)',
+                      description: 'Tüm kasa dökümleri, masraflar ve faturalar sıfırlanacaktır. Şirket kaşesi ve POS cihazlarınız korunacaktır.',
+                      impacts: [
+                        'Tüm Günlük Kasa & Vega Hasılat Dökümleri silinir.',
+                        'Tüm Kasa Harcamaları & Faturalar silinir.',
+                        'ŞİRKET ÜNVANI, KAŞE VE POS AYARLARINIZ KORUNUR.',
+                      ],
+                      confirmButtonText: 'Temiz Kuruluma Geç',
+                    });
+                  }}
+                  className="w-full py-2 bg-emerald-700/80 hover:bg-emerald-600 text-white font-bold rounded text-xs transition cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  <RotateCcw className="w-3.5 h-3.5" />
+                  <span>Temiz Kuruluma Sıfırla</span>
+                </button>
+              </div>
+
+              <div className="p-3.5 rounded-xl bg-[#0d1117] border border-rose-500/30 flex flex-col justify-between space-y-2">
+                <div>
+                  <div className="flex items-center space-x-1.5 text-rose-400 font-bold mb-1">
+                    <ShieldAlert className="w-3.5 h-3.5" />
+                    <span className="text-white uppercase">3. Fabrika Sıfırlaması</span>
+                  </div>
+                  <p className="text-[11px] text-gray-300">
+                    Kaşe bilgileri dahil tüm sistemi ilk kurulum haline döndürür.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setConfirmModal({
+                      isOpen: true,
+                      type: 'factory_reset',
+                      title: 'Tam Fabrika Ayarlarına Sıfırla',
+                      description: 'Tüm sistem ve kaşe tanımları kalıcı olarak silinecektir.',
+                      impacts: [
+                        'Şirket Ünvanı, Kaşe ve Vergi No bilgileri silinir.',
+                        'Tüm kasa ve finansal kayıtlar silinir.',
+                      ],
+                      confirmButtonText: 'Tüm Sistemi Sıfırla',
+                    });
+                  }}
+                  className="w-full py-2 bg-rose-950/50 hover:bg-rose-900/80 border border-rose-600/40 text-rose-300 font-bold rounded text-xs transition cursor-pointer flex items-center justify-center space-x-1.5"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                  <span>Fabrika Ayarlarına Dön</span>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
+
+      {/* Safety Confirmation Modal in SettingsModal */}
+      {confirmModal && confirmModal.isOpen && (
+        <div className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 z-60 overflow-y-auto font-mono">
+          <div className="bg-[#161b22] rounded-xl border border-rose-500/50 w-full max-w-md p-5 shadow-2xl space-y-4 text-gray-200">
+            <div className="flex items-start justify-between border-b border-[#30363d] pb-2">
+              <div className="flex items-center space-x-2">
+                <ShieldAlert className="w-5 h-5 text-rose-400" />
+                <h3 className="text-sm font-bold text-white">{confirmModal.title}</h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="text-gray-400 hover:text-white cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <p className="text-xs text-gray-300 leading-relaxed">
+              {confirmModal.description}
+            </p>
+
+            <ul className="space-y-1 text-xs text-gray-400 bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
+              {confirmModal.impacts.map((imp, idx) => (
+                <li key={idx} className="flex items-start space-x-1.5">
+                  <span className="text-rose-400 font-bold">•</span>
+                  <span>{imp}</span>
+                </li>
+              ))}
+            </ul>
+
+            <div className="pt-2 border-t border-[#30363d] flex items-center justify-end space-x-2">
+              <button
+                type="button"
+                onClick={() => setConfirmModal(null)}
+                className="px-3 py-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-300 rounded text-xs transition cursor-pointer font-bold"
+              >
+                Vazgeç
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (confirmModal.type === 'single_day' && confirmModal.targetDate) {
+                    if (onResetSingleDay) {
+                      onResetSingleDay(confirmModal.targetDate);
+                    }
+                  } else if (confirmModal.type === 'clean_install') {
+                    if (onResetAllFinancialData) {
+                      onResetAllFinancialData();
+                    } else {
+                      onResetData();
+                    }
+                  } else if (confirmModal.type === 'factory_reset') {
+                    onResetData();
+                  }
+
+                  setConfirmModal(null);
+                  onClose();
+                }}
+                className="px-4 py-1.5 bg-rose-600 hover:bg-rose-500 text-white font-bold rounded text-xs transition cursor-pointer flex items-center space-x-1"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>{confirmModal.confirmButtonText}</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

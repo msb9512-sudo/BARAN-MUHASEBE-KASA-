@@ -749,21 +749,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
 
                 <div>
                   <label className="block font-semibold text-gray-300 mb-1">
-                    Kategori
+                    Fatura Kategorisi
                   </label>
-                  <select
+                  <input
+                    type="text"
                     value={invoiceForm.category}
                     onChange={(e) => setInvoiceForm({ ...invoiceForm, category: e.target.value })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 focus:border-orange-500 focus:outline-none"
-                  >
-                    <option value="Manav">Manav & Sebze</option>
-                    <option value="Kasap">Et & Kasap</option>
-                    <option value="Toptan Gıda">Toptan Gıda</option>
-                    <option value="İçecek">İçecek & Meşrubat</option>
-                    <option value="Temizlik">Temizlik & Sarf</option>
-                    <option value="Hizmet">Hizmet & Genel</option>
-                    <option value="Diğer">Diğer</option>
-                  </select>
+                    placeholder="Örn: Manav, Kasap, Hizmet..."
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                  />
                 </div>
               </div>
 

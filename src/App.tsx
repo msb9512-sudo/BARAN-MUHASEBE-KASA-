@@ -3,6 +3,8 @@ import {
   loadAppState,
   saveAppState,
   resetToSampleData,
+  resetAllFinancialData,
+  resetSingleDayData,
   AppState,
   RestaurantProfile,
 } from './utils/storage';
@@ -207,6 +209,16 @@ export function App() {
     setAppState(sample);
   };
 
+  const handleResetAllFinancialData = () => {
+    const cleaned = resetAllFinancialData(appState);
+    setAppState(cleaned);
+  };
+
+  const handleResetSingleDay = (date: string) => {
+    const updated = resetSingleDayData(date, appState);
+    setAppState(updated);
+  };
+
   return (
     <div className="min-h-screen bg-[#0f1115] text-gray-200 flex flex-col font-sans antialiased selection:bg-orange-500 selection:text-white">
       {/* Top Main Navigation */}
@@ -322,6 +334,12 @@ export function App() {
             profile={appState.profile}
             onUpdateProfile={handleUpdateProfile}
             onResetData={handleResetData}
+            entries={appState.entries}
+            expenses={appState.expenses}
+            invoices={appState.invoices}
+            selectedDate={selectedDate}
+            onResetAllFinancialData={handleResetAllFinancialData}
+            onResetSingleDay={handleResetSingleDay}
           />
         )}
       </main>
@@ -375,6 +393,9 @@ export function App() {
         profile={appState.profile}
         onUpdateProfile={handleUpdateProfile}
         onResetData={handleResetData}
+        selectedDate={selectedDate}
+        onResetAllFinancialData={handleResetAllFinancialData}
+        onResetSingleDay={handleResetSingleDay}
       />
     </div>
   );

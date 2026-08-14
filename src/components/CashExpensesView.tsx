@@ -42,10 +42,11 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<CashExpense | null>(null);
+  const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
 
   const [formData, setFormData] = useState({
     date: selectedDate,
-    category: categories[0]?.name || 'Manav / Sebze & Meyve',
+    category: '',
     description: '',
     amount: '',
     paidBy: 'Kasa' as 'Kasa' | 'Banka' | 'Cepte/Şahsi',
@@ -53,6 +54,14 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     enteredBy: 'Kasa Sorumlusu',
     notes: '',
   });
+
+  // Extract all available unique categories from props + existing expenses
+  const availableCategories = Array.from(
+    new Set([
+      ...categories.map((c) => c.name),
+      ...expenses.map((e) => e.category).filter(Boolean),
+    ])
+  );
 
   // Filter expenses
   const filteredExpenses = expenses.filter((exp) => {
@@ -92,9 +101,10 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
 
   const handleOpenAdd = () => {
     setEditingExpense(null);
+    setIsCustomCategoryMode(categories.length === 0);
     setFormData({
       date: selectedDate,
-      category: categories[0]?.name || 'Manav / Sebze & Meyve',
+      category: categories[0]?.name || '',
       description: '',
       amount: '',
       paidBy: 'Kasa',
@@ -107,9 +117,11 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
 
   const handleOpenEdit = (exp: CashExpense) => {
     setEditingExpense(exp);
+    const existsInList = categories.some((c) => c.name === exp.category);
+    setIsCustomCategoryMode(!existsInList && !!exp.category);
     setFormData({
       date: exp.date,
-      category: exp.category,
+      category: exp.category || '',
       description: exp.description,
       amount: exp.amount.toString(),
       paidBy: exp.paidBy,
@@ -271,10 +283,12 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
           >
-            <option value="all">Tüm Kategoriler</option>
-            {categories.map((cat) => (
-              <option key={cat.id} value={cat.name}>
-                {cat.name}
+            <option value="all">
+              Tüm Kategoriler{availableCategories.length > 0 ? ` (${availableCategories.length})` : ''}
+            </option>
+            {availableCategories.map((catName) => (
+              <option key={catName} value={catName}>
+                {catName}
               </option>
             ))}
           </select>
@@ -420,20 +434,59 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-gray-300 mb-1">
-                    Kategori *
-                  </label>
-                  <select
-                    value={formData.category}
-                    onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 focus:border-orange-500 focus:outline-none"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.name}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-gray-300">
+                      Kategori *
+                    </label>
+                    {categories.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsCustomCategoryMode(!isCustomCategoryMode);
+                          if (!isCustomCategoryMode) {
+                            setFormData({ ...formData, category: '' });
+                          } else {
+                            setFormData({ ...formData, category: categories[0]?.name || '' });
+                          }
+                        }}
+                        className="text-[10px] text-orange-400 hover:text-orange-300 underline cursor-pointer"
+                      >
+                        {isCustomCategoryMode ? 'Listeden Seç' : '+ Yeni Kategori Yaz'}
+                      </button>
+                    )}
+                  </div>
+
+                  {isCustomCategoryMode || categories.length === 0 ? (
+                    <input
+                      type="text"
+                      required
+                      value={formData.category}
+                      onChange={(e) => setFormData({ ...formData, category: e.target.value })}
+                      placeholder="Kategori Adı (Örn: Sebze, Personel, Sarf...)"
+                      className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                    />
+                  ) : (
+                    <select
+                      value={formData.category}
+                      onChange={(e) => {
+                        if (e.target.value === '__NEW__') {
+                          setIsCustomCategoryMode(true);
+                          setFormData({ ...formData, category: '' });
+                        } else {
+                          setFormData({ ...formData, category: e.target.value });
+                        }
+                      }}
+                      className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 focus:border-orange-500 focus:outline-none"
+                    >
+                      <option value="">-- Kategori Seçin --</option>
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.name}>
+                          {c.name}
+                        </option>
+                      ))}
+                      <option value="__NEW__">+ Yeni Kategori Yaz...</option>
+                    </select>
+                  )}
                 </div>
               </div>
 

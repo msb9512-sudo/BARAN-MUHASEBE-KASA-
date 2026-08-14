@@ -96,7 +96,7 @@ export function calculateDailyRegister(
   const discountTotal = Number(dailyEntry.vegaReport?.discountTotal || dailyEntry.vegaReport?.discountAmount) || 0;
   const openAccountTotal = Number(dailyEntry.vegaReport?.openAccountTotal) || 0;
 
-  const cashSales = Number(dailyEntry.vegaReport?.cashSales) || 0;
+  const enteredCashSales = Number(dailyEntry.vegaReport?.cashSales) || 0;
   const creditCardSales = Number(dailyEntry.vegaReport?.creditCardSales) || 0;
   const otherSales = Number(dailyEntry.vegaReport?.otherSales) || 0;
   
@@ -105,11 +105,23 @@ export function calculateDailyRegister(
   if (totalSales <= 0 && grossProductSales > 0) {
     totalSales = Math.max(0, grossProductSales - discountTotal - openAccountTotal);
   } else if (totalSales <= 0) {
-    totalSales = cashSales + creditCardSales + otherSales;
+    totalSales = enteredCashSales + creditCardSales + otherSales;
   }
 
   const posTotal = getPosTotal(dailyEntry.posReports);
-  const posVegaDifference = posTotal - creditCardSales;
+  const effectiveCC = posTotal > 0 ? posTotal : creditCardSales;
+
+  // Auto-calculated Cash Sales: Net Total Sales - Credit Card / POS - Other Sales
+  let cashSales = enteredCashSales;
+  if (totalSales > 0) {
+    const derivedCash = Math.max(0, totalSales - effectiveCC - otherSales);
+    // If cash sales is not entered or if POS / Credit Card has been entered/modified, compute automatically
+    if (cashSales <= 0 || (effectiveCC > 0 && Math.abs(cashSales + effectiveCC + otherSales - totalSales) > 0.01)) {
+      cashSales = derivedCash;
+    }
+  }
+
+  const posVegaDifference = posTotal > 0 && creditCardSales > 0 ? posTotal - creditCardSales : 0;
   const isPosReconciled = Math.abs(posVegaDifference) < 0.01;
 
   const cashExpenses = getDailyCashExpenses(expenses, dailyEntry.date);

@@ -201,10 +201,13 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
 
   // Auto-calculate cash sales from Total Sales minus POS/CC sales
   const handleAutoComputeCashFromSales = () => {
-    const total = currentEntry.vegaReport.totalSales || 0;
-    const cc = reg.posTotal > 0 ? reg.posTotal : (currentEntry.vegaReport.creditCardSales || 0);
-    const other = currentEntry.vegaReport.otherSales || 0;
+    const total = Number(currentEntry.vegaReport.totalSales) || 0;
+    const cc = reg.posTotal > 0 ? reg.posTotal : (Number(currentEntry.vegaReport.creditCardSales) || 0);
+    const other = Number(currentEntry.vegaReport.otherSales) || 0;
     const autoCash = Math.max(0, total - cc - other);
+
+    const openingCash = Number(currentEntry.openingCash) || 0;
+    const autoRemainingCash = openingCash + autoCash - reg.totalCashOutflow;
 
     onUpdateEntry({
       ...currentEntry,
@@ -213,6 +216,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         cashSales: autoCash,
         creditCardSales: cc,
       },
+      actualCashInHand: autoRemainingCash,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -220,22 +224,44 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
   // Vega field updater
   const handleVegaChange = (field: string, val: string | number) => {
     const num = typeof val === 'number' ? val : parseNumberInput(val);
+    const currentVega = currentEntry.vegaReport;
+    const posTotal = getPosTotal(currentEntry.posReports);
+    const effectiveCC = posTotal > 0 ? posTotal : (field === 'creditCardSales' ? num : (Number(currentVega.creditCardSales) || 0));
+    const other = field === 'otherSales' ? num : (Number(currentVega.otherSales) || 0);
+
     const updatedVega = {
-      ...currentEntry.vegaReport,
+      ...currentVega,
       [field]: num,
     };
 
-    // Auto calculate total sales if cash or cc changed
-    if (field === 'cashSales' || field === 'creditCardSales' || field === 'otherSales') {
-      const cash = field === 'cashSales' ? num : (currentEntry.vegaReport.cashSales || 0);
-      const cc = field === 'creditCardSales' ? num : (currentEntry.vegaReport.creditCardSales || 0);
-      const other = field === 'otherSales' ? num : (currentEntry.vegaReport.otherSales || 0);
-      updatedVega.totalSales = cash + cc + other;
+    // Auto calculate cash sales or total sales when fields change
+    if (field === 'totalSales') {
+      // Toplam Net Satış değiştiğinde Kredi Kartı / POS düşülüp Nakit Satış otomatik hesaplanır
+      updatedVega.cashSales = Math.max(0, num - effectiveCC - other);
+    } else if (field === 'creditCardSales') {
+      const total = Number(currentVega.totalSales) || 0;
+      if (total > 0) {
+        updatedVega.cashSales = Math.max(0, total - num - other);
+      } else {
+        updatedVega.totalSales = (Number(currentVega.cashSales) || 0) + num + other;
+      }
+    } else if (field === 'cashSales') {
+      updatedVega.totalSales = num + effectiveCC + other;
+    } else if (field === 'otherSales') {
+      const total = Number(currentVega.totalSales) || 0;
+      if (total > 0) {
+        updatedVega.cashSales = Math.max(0, total - effectiveCC - num);
+      }
     }
+
+    const calculatedCashSales = updatedVega.cashSales ?? (Math.max(0, (Number(updatedVega.totalSales) || 0) - effectiveCC - other));
+    const openingCash = Number(currentEntry.openingCash) || 0;
+    const autoRemainingCash = openingCash + calculatedCashSales - reg.totalCashOutflow;
 
     onUpdateEntry({
       ...currentEntry,
       vegaReport: updatedVega,
+      actualCashInHand: autoRemainingCash,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -248,8 +274,17 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
       [field]: field === 'creditCardTotal' || field === 'refundTotal' || field === 'slipCount' ? parseNumberInput(val) : val,
     };
 
-    // Also sync vega creditCardSales with total of POS
+    // Calculate total of all POS credit cards
     const newPosTotal = updatedPos.reduce((sum, item) => sum + (Number(item.creditCardTotal) || 0), 0);
+    const totalSales = Number(currentEntry.vegaReport.totalSales) || 0;
+    const otherSales = Number(currentEntry.vegaReport.otherSales) || 0;
+    
+    // Auto-calculate Cash Sales: Total Sales (Ciro) - POS Total - Other Sales
+    const autoCashSales = Math.max(0, totalSales - newPosTotal - otherSales);
+
+    // Auto-calculate expected remaining cash in hand
+    const openingCash = Number(currentEntry.openingCash) || 0;
+    const autoRemainingCash = openingCash + autoCashSales - reg.totalCashOutflow;
 
     onUpdateEntry({
       ...currentEntry,
@@ -257,7 +292,9 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
       vegaReport: {
         ...currentEntry.vegaReport,
         creditCardSales: newPosTotal,
+        cashSales: autoCashSales,
       },
+      actualCashInHand: autoRemainingCash,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -281,9 +318,22 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
 
   const handleRemovePos = (index: number) => {
     const updatedPos = currentEntry.posReports.filter((_, i) => i !== index);
+    const newPosTotal = updatedPos.reduce((sum, item) => sum + (Number(item.creditCardTotal) || 0), 0);
+    const totalSales = Number(currentEntry.vegaReport.totalSales) || 0;
+    const otherSales = Number(currentEntry.vegaReport.otherSales) || 0;
+    const autoCashSales = Math.max(0, totalSales - newPosTotal - otherSales);
+    const openingCash = Number(currentEntry.openingCash) || 0;
+    const autoRemainingCash = openingCash + autoCashSales - reg.totalCashOutflow;
+
     onUpdateEntry({
       ...currentEntry,
       posReports: updatedPos,
+      vegaReport: {
+        ...currentEntry.vegaReport,
+        creditCardSales: newPosTotal,
+        cashSales: autoCashSales,
+      },
+      actualCashInHand: autoRemainingCash,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -621,6 +671,33 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   />
                   <span className="absolute right-3 top-2 text-xs text-emerald-400 font-bold font-mono">₺</span>
                 </div>
+              </div>
+            </div>
+
+            {/* Live Formula Banner: Net Satış - Kredi Ödemeleri = Kalan Nakit Hasılat */}
+            <div className="p-3 bg-[#0d1117] rounded-xl border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono">
+              <div className="flex items-start sm:items-center space-x-2.5">
+                <div className="p-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 shrink-0">
+                  <Calculator className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="text-gray-200 font-bold flex items-center space-x-1.5">
+                    <span>Kredi Düşüldükten Sonra Kalan Nakit Hasılat:</span>
+                    <span className="text-emerald-400 font-bold text-sm">
+                      {formatCurrency(reg.cashSales)}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-gray-400">
+                    Net Ciro ({formatCurrency(reg.totalSales)}) - Kredi Kartı/POS ({formatCurrency(reg.posTotal > 0 ? reg.posTotal : reg.creditCardSales)})
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center space-x-2 shrink-0 bg-[#161b22] px-3 py-1.5 rounded-lg border border-orange-500/30">
+                <span className="text-[11px] text-gray-400">Kalan Net Kasa:</span>
+                <span className="text-orange-400 font-bold text-sm">
+                  {formatCurrency(reg.expectedCash)}
+                </span>
               </div>
             </div>
 

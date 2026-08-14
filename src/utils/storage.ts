@@ -50,22 +50,9 @@ export const DEFAULT_PROFILE: RestaurantProfile = {
   currency: '₺',
 };
 
-export const DEFAULT_POS_DEVICES: POSDevice[] = [
-  { id: 'pos-1', name: 'POS 1', bankName: '', isActive: true },
-  { id: 'pos-2', name: 'POS 2', bankName: '', isActive: true },
-];
+export const DEFAULT_POS_DEVICES: POSDevice[] = [];
 
-export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [
-  { id: 'cat-1', name: 'Manav / Sebze & Meyve', color: '#10b981' },
-  { id: 'cat-2', name: 'Market / Toptan Gıda', color: '#3b82f6' },
-  { id: 'cat-3', name: 'Personel Avans & Maaş', color: '#8b5cf6' },
-  { id: 'cat-4', name: 'Temizlik & Hijyen', color: '#06b6d4' },
-  { id: 'cat-5', name: 'Tüp / Gaz & Enerji', color: '#f59e0b' },
-  { id: 'cat-6', name: 'Bakım, Onarım & Servis', color: '#ef4444' },
-  { id: 'cat-7', name: 'Kargo & Nakliye', color: '#6366f1' },
-  { id: 'cat-8', name: 'Küçük Kasa Gideri', color: '#ec4899' },
-  { id: 'cat-9', name: 'Diğer Giderler', color: '#64748b' },
-];
+export const DEFAULT_EXPENSE_CATEGORIES: ExpenseCategory[] = [];
 
 /**
  * Clean initial installation data (No test records)
@@ -256,12 +243,7 @@ export function getOrCreateDailyEntry(date: string, allEntries: DailyEntry[], po
       tableCount: 0,
       guestCount: 0,
     },
-    vegaGroups: [
-      { id: 'g-1', name: 'Yiyecek & Ana Yemekler', amount: 0, percentage: 0 },
-      { id: 'g-2', name: 'Alkollü İçecekler', amount: 0, percentage: 0 },
-      { id: 'g-3', name: 'Tatlı & Dondurma', amount: 0, percentage: 0 },
-      { id: 'g-4', name: 'Sıcak & Soğuk İçecekler', amount: 0, percentage: 0 },
-    ],
+    vegaGroups: [],
     posReports: posDevices.filter((p) => p.isActive).map((p, idx) => ({
       id: `pos-rep-${Date.now()}-${idx}`,
       posDeviceId: p.id,
@@ -357,6 +339,50 @@ export function saveAppState(state: AppState): void {
 export function resetToSampleData(): AppState {
   resetToInitialSampleData();
   return loadAppState();
+}
+
+/**
+ * Resets all financial entries, expenses and invoices, but preserves company profile, POS devices, and expense categories.
+ */
+export function resetAllFinancialData(currentState: AppState): AppState {
+  const cleanState: AppState = {
+    ...currentState,
+    entries: {},
+    expenses: [],
+    invoices: [],
+  };
+  saveDailyEntries([]);
+  saveCashExpenses([]);
+  saveInvoices([]);
+  return cleanState;
+}
+
+/**
+ * Resets a single specific day's records (daily entry, expenses for that day, invoices for that day)
+ */
+export function resetSingleDayData(date: string, currentState: AppState): AppState {
+  const remainingEntries = { ...currentState.entries };
+  delete remainingEntries[date];
+
+  // Re-create an empty fresh draft for that day
+  const freshEntry = getOrCreateDailyEntry(date, Object.values(remainingEntries), currentState.posDevices);
+  remainingEntries[date] = freshEntry;
+
+  const remainingExpenses = currentState.expenses.filter((e) => e.date !== date);
+  const remainingInvoices = currentState.invoices.filter((i) => i.date !== date);
+
+  const updatedState: AppState = {
+    ...currentState,
+    entries: remainingEntries,
+    expenses: remainingExpenses,
+    invoices: remainingInvoices,
+  };
+
+  saveDailyEntries(Object.values(remainingEntries));
+  saveCashExpenses(remainingExpenses);
+  saveInvoices(remainingInvoices);
+
+  return updatedState;
 }
 
 /**
