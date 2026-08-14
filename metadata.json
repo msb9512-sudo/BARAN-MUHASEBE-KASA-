@@ -1,0 +1,6 @@
+{
+  "name": "Restoran Muhasebe ve Kasa Yönetim Sistemi",
+  "description": "Vega Şefim, POS Z raporları, günlük kasa kapanışı, faturalar, kasa giderleri ve patron raporu takibi için profesyonel restoran muhasebe programı.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
