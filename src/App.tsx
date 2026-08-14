@@ -19,6 +19,7 @@ import { BossReportModal } from './components/BossReportModal';
 import { VegaImportModal } from './components/VegaImportModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SettingsView } from './components/SettingsView';
+import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { getTodayIsoDate } from './utils/formatters';
 
 export function App() {
@@ -27,7 +28,7 @@ export function App() {
   
   // Navigation & UI state
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'daily' | 'groups' | 'expenses' | 'invoices' | 'closing' | 'monthly' | 'settings'
+    'dashboard' | 'daily' | 'groups' | 'expenses' | 'invoices' | 'closing' | 'monthly' | 'workspace' | 'settings'
   >('dashboard');
   
   const [selectedDate, setSelectedDate] = useState<string>(
@@ -300,6 +301,15 @@ export function App() {
               setSelectedDate(date);
               setActiveTab('daily');
             }}
+          />
+        )}
+
+        {activeTab === 'workspace' && (
+          <GoogleWorkspaceView
+            currentEntry={currentEntry}
+            appState={appState}
+            onRestoreState={(restoredState) => setAppState(restoredState)}
+            onOpenVegaImport={() => setIsVegaImportOpen(true)}
           />
         )}
 

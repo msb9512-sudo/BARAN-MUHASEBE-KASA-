@@ -15,6 +15,7 @@ import {
   PieChart,
   SlidersHorizontal,
   Upload,
+  Cloud,
 } from 'lucide-react';
 import { DailyEntry, CashExpense, Invoice } from '../types';
 import { formatDateWithDayTR, addDays } from '../utils/formatters';
@@ -29,6 +30,7 @@ export type TabType =
   | 'invoices'
   | 'closing'
   | 'monthly'
+  | 'workspace'
   | 'settings';
 
 interface NavbarProps {
@@ -60,6 +62,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'invoices', label: 'Faturalar & Ürünler', icon: FileText },
     { id: 'closing', label: 'Günlük Kapanış', icon: Lock },
     { id: 'monthly', label: 'Aylık İcmal Raporu', icon: Calendar },
+    { id: 'workspace', label: 'Google Drive & Sheets', icon: Cloud },
     { id: 'settings', label: 'Ayarlar & Kaşe', icon: Settings },
   ];
 
