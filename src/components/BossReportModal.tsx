@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Copy,
   Check,
@@ -13,6 +13,8 @@ import {
   CheckCircle2,
   AlertTriangle,
   Sparkles,
+  X,
+  ArrowLeft,
 } from 'lucide-react';
 import { DailyEntry, CashExpense, Invoice } from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR } from '../utils/formatters';
@@ -39,6 +41,17 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
   const [copied, setCopied] = useState(false);
   const reg = calculateDailyRegister(entry, expenses, invoices);
 
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   // Generate plain text for WhatsApp / SMS
@@ -50,9 +63,12 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
       `📅 *${formatDateTR(entry.date)} GÜNLÜK KASA VE SATIŞ RAPORU*`,
       `───────────────────────────`,
       `💰 *TOPLAM SATIŞ (CİRO):* ${reg.totalSales.toLocaleString('tr-TR')} ₺`,
+      entry.vegaReport.grossProductSales ? `🏷 *Brüt Ürün Satışı:* ${entry.vegaReport.grossProductSales.toLocaleString('tr-TR')} ₺` : '',
+      (entry.vegaReport.discountTotal || entry.vegaReport.discountAmount) ? `🔻 *Toplam İskonto:* -${(entry.vegaReport.discountTotal || entry.vegaReport.discountAmount || 0).toLocaleString('tr-TR')} ₺` : '',
+      entry.vegaReport.openAccountTotal ? `📝 *Açık Hesap (Cari):* -${entry.vegaReport.openAccountTotal.toLocaleString('tr-TR')} ₺` : '',
       `💵 *Nakit Satış:* ${reg.cashSales.toLocaleString('tr-TR')} ₺`,
       `💳 *Kredi Kartı Satış:* ${reg.creditCardSales.toLocaleString('tr-TR')} ₺`,
-      entry.vegaReport.otherSales ? `🎟 *Yemek Kartı / Cari:* ${entry.vegaReport.otherSales.toLocaleString('tr-TR')} ₺` : '',
+      entry.vegaReport.otherSales ? `🎟 *Diğer Satışlar:* ${entry.vegaReport.otherSales.toLocaleString('tr-TR')} ₺` : '',
       `───────────────────────────`,
       `🧾 *Kasa Giderleri Toplamı:* -${reg.cashExpenses.toLocaleString('tr-TR')} ₺`,
       reg.invoiceCashPayments ? `📦 *Kasadan Fatura Ödemesi:* -${reg.invoiceCashPayments.toLocaleString('tr-TR')} ₺` : '',
@@ -61,6 +77,7 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
       `💼 *Önceki Günden Devir Kasa:* ${reg.openingCash.toLocaleString('tr-TR')} ₺`,
       `🎯 *Beklenen Nakit Kasa:* ${reg.expectedCash.toLocaleString('tr-TR')} ₺`,
       `💵 *GÜN SONU FİİLİ KASA:* ${reg.actualCashInHand.toLocaleString('tr-TR')} ₺`,
+      entry.vaultTransfer?.transferred ? `🔐 *Ana Kasaya Devredilen Nakit:* ${entry.vaultTransfer.amount.toLocaleString('tr-TR')} ₺` : '',
       `───────────────────────────`,
       `🔍 *DENETİM VE KONTROL:*`,
       `• *Vega / POS Kontrol:* ${reg.isPosReconciled ? '✓ UYUMLU (Fark Yok)' : `⚠ ${Math.abs(reg.posVegaDifference).toLocaleString('tr-TR')} ₺ FARK VAR`}`,
@@ -83,8 +100,16 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-mono">
-      <div className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-2xl p-6 sm:p-8 shadow-2xl space-y-6 my-6">
+    <div
+      id="boss-report-backdrop"
+      onClick={onClose}
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-mono cursor-pointer"
+    >
+      <div
+        id="boss-report-modal-content"
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-2xl p-5 sm:p-7 shadow-2xl space-y-5 my-6 max-h-[90vh] overflow-y-auto cursor-default"
+      >
         
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#30363d] pb-4">
@@ -93,8 +118,8 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
               👔
             </div>
             <div>
-              <h3 className="font-bold text-white text-lg">
-                Patrona Gönderilecek Günlük Kasa Raporu
+              <h3 className="font-bold text-white text-lg flex items-center gap-2">
+                <span>Patrona Gönderilecek Günlük Kasa Raporu</span>
               </h3>
               <p className="text-xs text-gray-400">
                 Sade, net ve yönetici için optimize edilmiş günlük finansal özet kartı
@@ -103,10 +128,13 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
           </div>
 
           <button
+            id="boss-report-close-top-btn"
             onClick={onClose}
-            className="text-gray-400 hover:text-white text-xl font-bold p-1 cursor-pointer"
+            className="flex items-center space-x-1 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-rose-950/40 text-gray-300 hover:text-rose-300 border border-[#30363d] hover:border-rose-800 transition cursor-pointer text-xs font-semibold"
+            title="Kapat (ESC veya Dışarıya Tıklayın)"
           >
-            ✕
+            <X className="w-4 h-4" />
+            <span>Kapat</span>
           </button>
         </div>
 
@@ -116,7 +144,7 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
             Raporu tek tuşla WhatsApp veya Telegram ile paylaşabilirsiniz:
           </div>
 
-          <div className="flex items-center space-x-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={handleCopy}
               className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer"
@@ -131,6 +159,14 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
             >
               <Printer className="w-4 h-4" />
               <span>Yazdır / PDF</span>
+            </button>
+
+            <button
+              onClick={onClose}
+              className="flex items-center space-x-1 bg-[#21262d] hover:bg-rose-950/40 text-gray-300 hover:text-rose-300 text-xs font-semibold px-3 py-2 rounded-lg border border-[#30363d] hover:border-rose-800 transition cursor-pointer"
+            >
+              <X className="w-3.5 h-3.5" />
+              <span>Kapat</span>
             </button>
           </div>
         </div>
@@ -179,6 +215,27 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
 
           {/* Detailed breakdown list */}
           <div className="bg-[#161b22] rounded-lg p-5 border border-[#30363d] space-y-3 text-xs">
+            {entry.vegaReport.grossProductSales ? (
+              <div className="flex justify-between py-1 border-b border-[#21262d]">
+                <span className="text-gray-400">Brüt Ürün Satış Tutarı:</span>
+                <strong className="text-gray-200 font-mono text-sm">{formatCurrency(entry.vegaReport.grossProductSales)}</strong>
+              </div>
+            ) : null}
+
+            {(entry.vegaReport.discountTotal || entry.vegaReport.discountAmount) ? (
+              <div className="flex justify-between py-1 border-b border-[#21262d]">
+                <span className="text-rose-400 font-semibold">(-) Yapılan Toplam İskonto:</span>
+                <strong className="text-rose-400 font-mono text-sm">-{formatCurrency(entry.vegaReport.discountTotal || entry.vegaReport.discountAmount || 0)}</strong>
+              </div>
+            ) : null}
+
+            {entry.vegaReport.openAccountTotal ? (
+              <div className="flex justify-between py-1 border-b border-[#21262d]">
+                <span className="text-amber-400 font-semibold">(-) Açık Hesap (Cari / Veresiye):</span>
+                <strong className="text-amber-400 font-mono text-sm">-{formatCurrency(entry.vegaReport.openAccountTotal)}</strong>
+              </div>
+            ) : null}
+
             <div className="flex justify-between py-1 border-b border-[#21262d]">
               <span className="text-gray-400">Nakit Satış Hasılatı:</span>
               <strong className="text-gray-200 font-mono text-sm">{formatCurrency(reg.cashSales)}</strong>
@@ -210,6 +267,13 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
               <div className="flex justify-between py-1 border-b border-[#21262d]">
                 <span className="text-gray-400">Kasadan Bankaya Yatırılan / Çekim:</span>
                 <strong className="text-amber-400 font-mono text-sm">-{formatCurrency(reg.cashWithdrawals)}</strong>
+              </div>
+            )}
+
+            {entry.vaultTransfer?.transferred && (
+              <div className="flex justify-between py-1 border-b border-[#21262d]">
+                <span className="text-amber-400 font-medium">Ana Kasaya Devredilen Nakit (Banknotlu):</span>
+                <strong className="text-amber-300 font-mono text-sm">+{formatCurrency(entry.vaultTransfer.amount)}</strong>
               </div>
             )}
           </div>
@@ -261,7 +325,23 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
           </div>
         </div>
 
+        {/* Modal Bottom Footer with Close and Back buttons */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-[#30363d]">
+          <div className="text-[11px] text-gray-400">
+            Pencereyi kapatmak için dışarıya tıklayabilir veya <kbd className="px-1.5 py-0.5 bg-[#0d1117] border border-[#30363d] rounded text-[10px] text-gray-300">ESC</kbd> tuşuna basabilirsiniz.
+          </div>
+          <button
+            id="boss-report-footer-close-btn"
+            onClick={onClose}
+            className="w-full sm:w-auto px-6 py-2.5 bg-[#21262d] hover:bg-rose-950/50 text-gray-200 hover:text-rose-300 border border-[#30363d] hover:border-rose-800 rounded-lg text-xs font-bold transition cursor-pointer flex items-center justify-center space-x-2 shadow-sm"
+          >
+            <X className="w-4 h-4" />
+            <span>Kapat ve Geri Dön</span>
+          </button>
+        </div>
+
       </div>
     </div>
   );
 };
+

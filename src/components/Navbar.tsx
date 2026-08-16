@@ -1,37 +1,22 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  CheckCircle2,
-  AlertTriangle,
-  Lock,
-  Unlock,
+  Menu,
   Settings,
-  FileSpreadsheet,
-  Layers,
-  Receipt,
-  FileText,
-  PieChart,
-  SlidersHorizontal,
-  Upload,
-  Cloud,
+  Sparkles,
+  ChevronRight as ChevronRightIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Sun,
+  Moon,
 } from 'lucide-react';
-import { DailyEntry, CashExpense, Invoice } from '../types';
 import { formatDateWithDayTR, addDays } from '../utils/formatters';
-import { calculateDailyRegister, auditDailyEntry } from '../utils/calculations';
+import { TabType, AppThemeSettings } from '../types';
 import { RestaurantProfile } from '../utils/storage';
-
-export type TabType =
-  | 'dashboard'
-  | 'daily'
-  | 'groups'
-  | 'expenses'
-  | 'invoices'
-  | 'closing'
-  | 'monthly'
-  | 'workspace'
-  | 'settings';
+import { NAVIGATION_GROUPS, getGroupForTab } from '../components/Sidebar';
+import { loadThemeSettings, saveThemeSettings } from '../utils/theme';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -42,6 +27,9 @@ interface NavbarProps {
   onOpenVegaImport: () => void;
   onOpenSettings: () => void;
   profile?: RestaurantProfile;
+  onToggleMobileSidebar?: () => void;
+  isSidebarCollapsed?: boolean;
+  onToggleSidebarCollapse?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -53,18 +41,56 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenVegaImport,
   onOpenSettings,
   profile,
+  onToggleMobileSidebar,
+  isSidebarCollapsed,
+  onToggleSidebarCollapse,
 }) => {
-  const tabs: { id: TabType; label: string; icon: any }[] = [
-    { id: 'dashboard', label: 'Ana Panel', icon: Layers },
-    { id: 'daily', label: 'Günlük Kasa & POS', icon: FileSpreadsheet },
-    { id: 'groups', label: 'Vega Satış Grupları', icon: PieChart },
-    { id: 'expenses', label: 'Kasa Giderleri', icon: Receipt },
-    { id: 'invoices', label: 'Faturalar & Ürünler', icon: FileText },
-    { id: 'closing', label: 'Günlük Kapanış', icon: Lock },
-    { id: 'monthly', label: 'Aylık İcmal Raporu', icon: Calendar },
-    { id: 'workspace', label: 'Google Drive & Sheets', icon: Cloud },
-    { id: 'settings', label: 'Ayarlar & Kaşe', icon: Settings },
-  ];
+  const [currentThemeSettings, setCurrentThemeSettings] = useState<AppThemeSettings>(() => loadThemeSettings());
+
+  useEffect(() => {
+    const handleStorage = () => {
+      setCurrentThemeSettings(loadThemeSettings());
+    };
+    window.addEventListener('storage', handleStorage);
+    return () => window.removeEventListener('storage', handleStorage);
+  }, []);
+
+  const toggleLightDarkMode = () => {
+    const nextTheme = currentThemeSettings.themeId === 'clean-light' ? 'dark-obsidian' : 'clean-light';
+    const updated = { ...currentThemeSettings, themeId: nextTheme };
+    setCurrentThemeSettings(updated);
+    saveThemeSettings(updated);
+  };
+
+  const isLight = currentThemeSettings.themeId === 'clean-light';
+
+  const activeGroupId = getGroupForTab(activeTab);
+  const activeGroup =
+    NAVIGATION_GROUPS.find((g) => g.id === activeGroupId) ||
+    (activeTab === 'settings' || activeTab === 'workspace'
+      ? {
+          id: 'system' as const,
+          label: 'Sistem & Ayarlar',
+          shortLabel: 'Ayarlar',
+          icon: Settings,
+          description: 'Sistem ayarları ve Bulut',
+          defaultTab: 'settings' as const,
+          subItems: [
+            {
+              id: 'settings' as const,
+              label: 'Ayarlar',
+              shortLabel: 'Ayarlar',
+              icon: Settings,
+            },
+            {
+              id: 'workspace' as const,
+              label: 'Bulut',
+              shortLabel: 'Bulut',
+              icon: Sparkles,
+            },
+          ],
+        }
+      : NAVIGATION_GROUPS[0]);
 
   const getCompanyInitials = (str?: string) => {
     if (!str) return 'ŞK';
@@ -80,28 +106,51 @@ export const Navbar: React.FC<NavbarProps> = ({
   return (
     <header className="bg-[#161b22] border-b border-[#30363d] text-gray-200 sticky top-0 z-40 shadow-xl">
       {/* Top Bar */}
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3.5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5">
-          {/* Brand & Company Details */}
-          <div className="flex items-center space-x-3.5">
-            <div className="w-10 h-10 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400 font-bold text-base font-mono shadow-inner flex-shrink-0">
+      <div className="w-full px-3 sm:px-6 lg:px-8 py-3">
+        <div className="flex items-center justify-between gap-3">
+          {/* Brand & Mobile Hamburger & Desktop Sidebar Toggle */}
+          <div className="flex items-center space-x-2 sm:space-x-3">
+            {/* Hamburger Button for Mobile / Small Screens */}
+            <button
+              onClick={onToggleMobileSidebar}
+              className="lg:hidden p-2 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-lg text-gray-300 hover:text-white transition cursor-pointer"
+              title="Menüyü Aç/Kapat"
+            >
+              <Menu className="w-5 h-5" />
+            </button>
+
+            {/* Desktop Sidebar Toggle (Gizleme / Açma Tuşu) */}
+            <button
+              id="btn-navbar-toggle-sidebar"
+              onClick={onToggleSidebarCollapse}
+              className="hidden lg:flex p-2 bg-[#21262d] hover:bg-orange-500/20 border border-[#30363d] hover:border-orange-500/40 rounded-lg text-gray-300 hover:text-orange-400 transition cursor-pointer"
+              title={isSidebarCollapsed ? 'Sol Menüyü Genişlet' : 'Sol Menüyü Gizle/Daralt'}
+            >
+              {isSidebarCollapsed ? (
+                <PanelLeftOpen className="w-4 h-4 text-orange-400" />
+              ) : (
+                <PanelLeftClose className="w-4 h-4 text-gray-400 hover:text-orange-400" />
+              )}
+            </button>
+
+            <div className="w-9 h-9 rounded-lg bg-orange-500/10 border border-orange-500/30 flex items-center justify-center text-orange-400 font-bold text-sm font-mono shadow-inner shrink-0">
               {getCompanyInitials(companyDisplayName)}
             </div>
             <div className="min-w-0">
               <div className="flex items-center space-x-2">
                 <h1
-                  className="text-base font-bold tracking-tight text-white uppercase font-sans truncate max-w-[260px] sm:max-w-md lg:max-w-lg"
+                  className="text-sm sm:text-base font-bold tracking-tight text-white uppercase font-sans truncate max-w-[170px] sm:max-w-xs md:max-w-md lg:max-w-lg"
                   title={companyDisplayName}
                 >
                   {companyDisplayName}
                 </h1>
                 {profile?.taxOffice && (
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#21262d] text-gray-300 border border-[#30363d] uppercase tracking-wider hidden sm:inline">
+                  <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-[#21262d] text-gray-300 border border-[#30363d] uppercase tracking-wider hidden md:inline">
                     {profile.taxOffice} V.D.
                   </span>
                 )}
               </div>
-              <p className="text-xs text-gray-400 font-mono flex items-center gap-2 mt-0.5 truncate">
+              <p className="text-[11px] text-gray-400 font-mono flex items-center gap-1.5 mt-0.5 truncate">
                 {profile?.branch && <span>{profile.branch}</span>}
                 {profile?.taxNumber && (
                   <>
@@ -112,9 +161,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                 {!profile?.companyTitle && (
                   <button
                     onClick={() => setActiveTab('settings')}
-                    className="text-orange-400 hover:text-orange-300 underline cursor-pointer ml-1 text-[11px]"
+                    className="text-orange-400 hover:text-orange-300 underline cursor-pointer ml-1 text-[10px]"
                   >
-                    Kaşe & Şirket Bilgisi Ekle
+                    Kaşe Ekle
                   </button>
                 )}
               </p>
@@ -122,22 +171,22 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
 
           {/* Date Picker Control */}
-          <div className="flex items-center bg-[#0d1117] p-1.5 rounded-lg border border-[#30363d] shadow-inner self-start lg:self-auto">
+          <div className="flex items-center bg-[#0d1117] p-1 rounded-lg border border-[#30363d] shadow-inner">
             <button
               onClick={() => setSelectedDate(addDays(selectedDate, -1))}
-              className="p-1.5 hover:bg-[#21262d] rounded text-gray-400 hover:text-white transition cursor-pointer"
+              className="p-1 hover:bg-[#21262d] rounded text-gray-400 hover:text-white transition cursor-pointer"
               title="Önceki Gün"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center px-3 space-x-2">
-              <Calendar className="w-4 h-4 text-orange-400" />
+            <div className="flex items-center px-2 space-x-1.5">
+              <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
               <input
                 type="date"
                 value={selectedDate}
                 onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                className="bg-transparent text-sm font-semibold font-mono text-white focus:outline-none cursor-pointer"
+                className="bg-transparent text-xs sm:text-sm font-semibold font-mono text-white focus:outline-none cursor-pointer"
               />
               <span className="text-xs text-gray-400 hidden sm:inline border-l border-[#30363d] pl-2 font-mono">
                 {formatDateWithDayTR(selectedDate)}
@@ -146,7 +195,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setSelectedDate(addDays(selectedDate, 1))}
-              className="p-1.5 hover:bg-[#21262d] rounded text-gray-400 hover:text-white transition cursor-pointer"
+              className="p-1 hover:bg-[#21262d] rounded text-gray-400 hover:text-white transition cursor-pointer"
               title="Sonraki Gün"
             >
               <ChevronRight className="w-4 h-4" />
@@ -154,65 +203,102 @@ export const Navbar: React.FC<NavbarProps> = ({
 
             <button
               onClick={() => setSelectedDate('2026-08-14')}
-              className="ml-2 text-xs bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] px-2.5 py-1 rounded text-gray-300 hover:text-white transition font-mono"
+              className="ml-1 text-[11px] bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] px-2 py-0.5 rounded text-gray-300 hover:text-white transition font-mono hidden md:inline"
             >
               Bugün
             </button>
           </div>
 
           {/* Quick Action Tools */}
-          <div className="flex items-center space-x-2">
+          <div className="flex items-center space-x-2 shrink-0">
+            {/* Quick Theme Switcher Button (Aydınlık / Karanlık Mod) */}
             <button
-              onClick={onOpenVegaImport}
-              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-gray-200 px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer"
-              title="Vega Şefim Raporunu Excel veya Metinden İçe Aktar"
+              id="btn-quick-theme-toggle"
+              type="button"
+              onClick={toggleLightDarkMode}
+              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-gray-200 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-mono font-medium shadow-xs transition cursor-pointer"
+              title={isLight ? 'Karanlık Moda Geç (Gece)' : 'Aydınlık Moda Geç (Gündüz Beyaz)'}
             >
-              <Upload className="w-3.5 h-3.5 text-orange-400" />
-              <span className="hidden sm:inline">Vega Yükle</span>
+              {isLight ? (
+                <>
+                  <Moon className="w-3.5 h-3.5 text-indigo-400" />
+                  <span className="hidden sm:inline">Karanlık Mod</span>
+                </>
+              ) : (
+                <>
+                  <Sun className="w-3.5 h-3.5 text-amber-400" />
+                  <span className="hidden sm:inline">Aydınlık Mod</span>
+                </>
+              )}
             </button>
 
             <button
               onClick={onOpenBossReport}
-              className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white px-3.5 py-1.5 rounded-lg text-xs font-semibold shadow-md transition cursor-pointer"
+              className="flex items-center space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition cursor-pointer"
             >
               <span>👔</span>
-              <span className="font-semibold">Patron Raporu</span>
-            </button>
-
-            <button
-              onClick={onOpenSettings}
-              className="p-2 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-lg text-gray-300 hover:text-white transition cursor-pointer"
-              title="Sistem ve Restoran Ayarları"
-            >
-              <Settings className="w-4 h-4" />
+              <span className="hidden sm:inline font-semibold">Patron Raporu</span>
             </button>
           </div>
         </div>
       </div>
 
-      {/* Navigation Sub-Tabs */}
+      {/* Secondary Sub-Tabs Bar (Shows Sub-Items of Current Active Group at the Top) */}
       <div className="border-t border-[#30363d] bg-[#0d1117] overflow-x-auto no-scrollbar">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex space-x-1.5 py-2">
-          {tabs.map((tab) => {
-            const isActive = activeTab === tab.id;
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id)}
-                className={`flex items-center space-x-2 px-3.5 py-1.5 rounded text-xs font-medium whitespace-nowrap transition cursor-pointer ${
-                  isActive
-                    ? 'bg-orange-500/10 text-orange-400 border border-orange-500/30 font-semibold'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d] border border-transparent'
-                }`}
-              >
-                <Icon className={`w-3.5 h-3.5 ${isActive ? 'text-orange-400' : 'text-gray-400'}`} />
-                <span>{tab.label}</span>
-              </button>
-            );
-          })}
+        <div className="w-full px-3 sm:px-6 lg:px-8 flex items-center justify-between py-1.5">
+          <div className="flex items-center space-x-1 sm:space-x-2 min-w-0">
+            {/* Active Group Indicator Badge */}
+            <div className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[11px] font-mono font-bold text-orange-400 shrink-0">
+              <span>{activeGroup.label}</span>
+              <ChevronRightIcon className="w-3 h-3 text-gray-500" />
+            </div>
+
+            {/* Sub-Tabs for Active Group */}
+            <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5">
+              {activeGroup.subItems.map((sub) => {
+                const isActive = activeTab === sub.id;
+                const SubIcon = sub.icon;
+                return (
+                  <button
+                    key={sub.id}
+                    id={`subtab-${sub.id}`}
+                    onClick={() => setActiveTab(sub.id)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition cursor-pointer ${
+                      isActive
+                        ? 'bg-orange-500 text-white font-bold shadow-sm shadow-orange-500/20'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d] border border-transparent'
+                    }`}
+                  >
+                    <SubIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                    <span>{sub.label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Quick Group Switcher Pills on Right for Convenience */}
+          <div className="hidden xl:flex items-center space-x-1 pl-4 border-l border-[#30363d] shrink-0">
+            {NAVIGATION_GROUPS.map((g) => {
+              const isCurr = activeGroupId === g.id;
+              return (
+                <button
+                  key={g.id}
+                  onClick={() => setActiveTab(g.defaultTab)}
+                  className={`text-[11px] font-mono px-2 py-0.5 rounded transition cursor-pointer ${
+                    isCurr
+                      ? 'text-orange-400 font-bold bg-orange-500/10 border border-orange-500/30'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  {g.shortLabel || g.label}
+                </button>
+              );
+            })}
+          </div>
         </div>
       </div>
     </header>
   );
 };
+

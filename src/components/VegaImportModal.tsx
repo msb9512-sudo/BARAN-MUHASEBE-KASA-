@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload,
   FileSpreadsheet,
@@ -27,6 +27,7 @@ interface VegaImportModalProps {
   onApplyImport: (updated: DailyEntry) => void;
   expenses?: CashExpense[];
   invoices?: Invoice[];
+  onOpenAccountDetected?: (amount: number, date: string) => void;
 }
 
 export const VegaImportModal: React.FC<VegaImportModalProps> = ({
@@ -36,6 +37,7 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
   onApplyImport,
   expenses = [],
   invoices = [],
+  onOpenAccountDetected,
 }) => {
   const [activeTab, setActiveTab] = useState<'pdf' | 'excel' | 'paste'>('pdf');
   const [pasteText, setPasteText] = useState('');
@@ -46,6 +48,17 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
   const [statusMessage, setStatusMessage] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -163,6 +176,9 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
   const previewTotalSales = parsedData?.totalSales ?? currentEntry.vegaReport?.totalSales ?? 0;
   const previewCCSales = parsedData?.creditCardSales ?? currentEntry.vegaReport?.creditCardSales ?? 0;
   const previewOtherSales = parsedData?.otherSales ?? currentEntry.vegaReport?.otherSales ?? 0;
+  const previewGrossSales = parsedData?.grossProductSales ?? (parsedGroups.length > 0 ? parsedGroups.reduce((a, b) => a + b.amount, 0) : previewTotalSales);
+  const previewDiscount = parsedData?.discountTotal ?? parsedData?.discountAmount ?? currentEntry.vegaReport?.discountTotal ?? currentEntry.vegaReport?.discountAmount ?? 0;
+  const previewOpenAccount = parsedData?.openAccountTotal ?? currentEntry.vegaReport?.openAccountTotal ?? 0;
   
   // Computed cash sales: if cashSales is not explicitly found, infer total - CC
   const previewCashSales =
@@ -190,10 +206,10 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
     const updatedVega = {
       ...currentEntry.vegaReport,
       ...(parsedData || {}),
-      grossProductSales: parsedData?.grossProductSales ?? currentEntry.vegaReport?.grossProductSales ?? previewTotalSales,
-      discountTotal: parsedData?.discountTotal ?? parsedData?.discountAmount ?? currentEntry.vegaReport?.discountTotal ?? 0,
-      discountAmount: parsedData?.discountAmount ?? currentEntry.vegaReport?.discountAmount ?? 0,
-      openAccountTotal: parsedData?.openAccountTotal ?? currentEntry.vegaReport?.openAccountTotal ?? 0,
+      grossProductSales: previewGrossSales,
+      discountTotal: previewDiscount,
+      discountAmount: previewDiscount,
+      openAccountTotal: previewOpenAccount,
       totalSales: previewTotalSales,
       cashSales: finalCashSales,
       creditCardSales: previewCCSales,
@@ -211,11 +227,23 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
 
     onApplyImport(finalEntry);
     onClose();
+
+    if (previewOpenAccount > 0 && onOpenAccountDetected) {
+      setTimeout(() => {
+        onOpenAccountDetected(previewOpenAccount, currentEntry.date);
+      }, 200);
+    }
   };
 
   return (
-    <div className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-sans">
-      <div className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-6 max-h-[90vh] overflow-y-auto">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-black/85 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-sans cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-2xl p-5 sm:p-6 shadow-2xl space-y-4 my-6 max-h-[90vh] overflow-y-auto cursor-default"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
           <div className="flex items-center space-x-3">
@@ -379,29 +407,63 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
             {/* Top Stat Overview */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 font-mono text-xs">
               <div className="p-3 bg-[#0d1117] border border-[#30363d] rounded-lg">
-                <span className="text-gray-400 text-[10px] uppercase block">Toplam Ciro (PDF)</span>
+                <span className="text-gray-400 text-[10px] uppercase block">Brüt Ürün Satış</span>
                 <span className="text-base font-bold text-white mt-0.5 block">
-                  {formatCurrency(previewTotalSales)}
+                  {formatCurrency(previewGrossSales)}
                 </span>
               </div>
 
-              <div className="p-3 bg-[#0d1117] border border-[#30363d] rounded-lg">
+              <div className="p-3 bg-rose-950/20 border border-rose-500/40 rounded-lg">
+                <span className="text-rose-400 text-[10px] uppercase font-bold block">(-) Toplam İskonto</span>
+                <span className="text-base font-bold text-rose-400 mt-0.5 block">
+                  -{formatCurrency(previewDiscount)}
+                </span>
+              </div>
+
+              <div className="p-3 bg-amber-950/20 border border-amber-500/40 rounded-lg">
+                <span className="text-amber-400 text-[10px] uppercase font-bold block">(-) Açık Hesap (Cari)</span>
+                <span className="text-base font-bold text-amber-400 mt-0.5 block">
+                  -{formatCurrency(previewOpenAccount)}
+                </span>
+              </div>
+
+              <div className="p-3 bg-emerald-950/20 border border-emerald-500/40 rounded-lg">
+                <span className="text-emerald-400 text-[10px] uppercase font-bold block">(=) Net Ciro (Genel Kasa)</span>
+                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
+                  {formatCurrency(previewTotalSales)}
+                </span>
+              </div>
+            </div>
+
+            {previewOpenAccount > 0 && (
+              <div className="p-3 bg-orange-500/15 border border-orange-500/40 rounded-xl flex items-center justify-between font-mono text-xs text-orange-300">
+                <div className="flex items-center space-x-2">
+                  <span className="text-base">📌</span>
+                  <span>
+                    Vega raporunda <strong>{formatCurrency(previewOpenAccount)}</strong> Açık Hesap tespit edildi. Kaydettikten sonra bunu bir kişiye / masaya bağlayabileceksiniz.
+                  </span>
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-3 gap-2.5 font-mono text-xs">
+              <div className="p-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg">
                 <span className="text-gray-400 text-[10px] uppercase block">Kredi Kartı / POS</span>
-                <span className="text-base font-bold text-sky-400 mt-0.5 block">
+                <span className="text-sm font-bold text-sky-400 mt-0.5 block">
                   {formatCurrency(previewCCSales)}
                 </span>
               </div>
 
-              <div className="p-3 bg-[#0d1117] border border-[#30363d] rounded-lg">
-                <span className="text-gray-400 text-[10px] uppercase block">Oto. Nakit Satış</span>
-                <span className="text-base font-bold text-emerald-400 mt-0.5 block">
+              <div className="p-2.5 bg-[#0d1117] border border-[#30363d] rounded-lg">
+                <span className="text-gray-400 text-[10px] uppercase block">Nakit Satış</span>
+                <span className="text-sm font-bold text-emerald-400 mt-0.5 block">
                   {formatCurrency(previewCashSales)}
                 </span>
               </div>
 
-              <div className="p-3 bg-orange-950/20 border border-orange-500/30 rounded-lg">
-                <span className="text-orange-400 text-[10px] font-bold uppercase block">Kalan Net Nakit</span>
-                <span className="text-base font-bold text-orange-400 mt-0.5 block">
+              <div className="p-2.5 bg-orange-950/20 border border-orange-500/30 rounded-lg">
+                <span className="text-orange-400 text-[10px] font-bold uppercase block">Kalan Net Kasa</span>
+                <span className="text-sm font-bold text-orange-400 mt-0.5 block">
                   {formatCurrency(calculatedRemainingCash)}
                 </span>
               </div>

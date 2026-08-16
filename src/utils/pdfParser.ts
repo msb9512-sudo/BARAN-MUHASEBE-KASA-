@@ -168,19 +168,71 @@ export async function extractTextFromPdf(arrayBuffer: ArrayBuffer): Promise<stri
 }
 
 /**
- * Normalizes Turkish text for comparison by removing diacritics and special characters
+ * Normalizes Turkish text for comparison by removing diacritics, case differences, and special characters
  */
-function normalizeTR(str: string): string {
-  return (str || '')
-    .toLocaleUpperCase('tr-TR')
-    .replace(/[\s_.-]+/g, ' ')
+export function normalizeTR(str: string): string {
+  if (!str) return '';
+  return str
     .replace(/İ/g, 'I')
-    .replace(/Ş/g, 'S')
-    .replace(/Ğ/g, 'G')
-    .replace(/Ü/g, 'U')
-    .replace(/Ö/g, 'O')
-    .replace(/Ç/g, 'C')
+    .replace(/ı/g, 'i')
+    .toLocaleUpperCase('tr-TR')
+    .replace(/[İIıi]/g, 'I')
+    .replace(/[Şş]/g, 'S')
+    .replace(/[Ğğ]/g, 'G')
+    .replace(/[Üü]/g, 'U')
+    .replace(/[Öö]/g, 'O')
+    .replace(/[Çç]/g, 'C')
+    .replace(/[^A-Z0-9]/g, ' ')
+    .replace(/\s+/g, ' ')
     .trim();
+}
+
+/**
+ * Extracts money amounts from a line or subsequent lines, smartly skipping percentage (%10) or quantities (15 Ad.)
+ */
+function extractMoneyAmount(line: string, nextLine?: string): number {
+  const getCandidates = (l: string) => {
+    if (!l) return [];
+    // Match any positive/negative number with optional decimals
+    const matches: { val: number; raw: string; idx: number }[] = [];
+    const reg = /(-?[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|-?[0-9]+)/g;
+    let m: RegExpExecArray | null;
+    while ((m = reg.exec(l)) !== null) {
+      const raw = m[1];
+      const idx = m.index;
+      const val = Math.abs(parseTRNumber(raw));
+      if (val > 0) {
+        // Check if preceded by %
+        const before = l.substring(Math.max(0, idx - 5), idx).trim();
+        const after = l.substring(idx + raw.length, idx + raw.length + 8).trim();
+        const isPercent = before.includes('%') || after.startsWith('%');
+        const isQty = /^(?:AD|AD\.|PORS|PORS\.|SAYFA|NO)/i.test(after);
+        if (!isPercent && !isQty) {
+          matches.push({ val, raw, idx });
+        }
+      }
+    }
+    return matches;
+  };
+
+  const currCandidates = getCandidates(line);
+  if (currCandidates.length > 0) {
+    // Look for candidate having decimals or highest index (usually at the end of line)
+    const withDecimals = currCandidates.filter((c) => c.raw.includes(',') || (c.raw.includes('.') && c.val > 10));
+    if (withDecimals.length > 0) {
+      return withDecimals[withDecimals.length - 1].val;
+    }
+    return currCandidates[currCandidates.length - 1].val;
+  }
+
+  if (nextLine) {
+    const nextCandidates = getCandidates(nextLine);
+    if (nextCandidates.length > 0) {
+      return nextCandidates[nextCandidates.length - 1].val;
+    }
+  }
+
+  return 0;
 }
 
 /**
@@ -204,10 +256,17 @@ export function extractProductFromLine(line: string): SoldProductItem | null {
     norm.includes('TARIH') ||
     norm.includes('RAPORU') ||
     norm.includes('GENEL KASA') ||
-    norm.includes('TOPLAM ISKONTO') ||
+    norm.includes('ISKONTO') ||
+    norm.includes('SKONTO') ||
+    norm.includes('INDIRIM') ||
     norm.includes('ACIK HESAP') ||
+    norm.includes('ACIKHESAP') ||
+    norm.includes('CARI HESAP') ||
+    norm.includes('CARI SATIS') ||
+    norm.includes('VERESIYE') ||
     norm.includes('KREDI KARTI') ||
-    norm.includes('K.KARTI')
+    norm.includes('K KARTI') ||
+    norm.includes('NAKIT SATIS')
   ) {
     return null;
   }
@@ -520,72 +579,99 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     const normLine = normalizeTR(line);
 
     // 1. Report Summary Blocks (Gross, Discount, Open Accounts, Net, Cash, Card)
-    if (normLine.includes('URUN TOPLAM SATIS') || normLine.includes('URUN TOPLAM') || normLine.includes('BRUT SATIS')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        grossProductSales = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (
+      normLine.includes('URUN TOPLAM SATIS') ||
+      normLine.includes('URUN TOPLAM') ||
+      normLine.includes('URUN SATIS TOPLAM') ||
+      normLine.includes('BRUT SATIS') ||
+      normLine.includes('BRUT TOPLAM') ||
+      normLine.includes('TOPLAM URUN') ||
+      normLine.includes('TOPLAM MATRAH')
+    ) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) grossProductSales = amt;
       continue;
     }
 
     if (
+      normLine.includes('ISKONTO') ||
+      normLine.includes('SKONTO') ||
+      normLine.includes('INDIRIM') ||
+      normLine.includes('YAPILAN ISKONTO') ||
       normLine.includes('TOPLAM ISKONTO') ||
-      normLine.includes('TOPLAM SKONTO') ||
+      normLine.includes('ISKONTO TUTARI') ||
       normLine.includes('ISKONTO TOPLAMI') ||
-      normLine.includes('INDIRIM TOPLAMI')
+      normLine.includes('INDIRIM TOPLAMI') ||
+      normLine.includes('INDIRIM TUTARI')
     ) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        discountAmount = parseTRNumber(nums[nums.length - 1]);
-      }
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) discountAmount = amt;
       continue;
     }
 
-    if (normLine.includes('ACIK HESAP TOPLAMI') || normLine.includes('ACIK HESAP')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        openAccountTotal = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (
+      normLine.includes('ACIK HESAP') ||
+      normLine.includes('ACIKHESAP') ||
+      normLine.includes('CARI HESAP') ||
+      normLine.includes('CARI TOPLAM') ||
+      normLine.includes('CARI SATIS') ||
+      normLine.includes('CARI') ||
+      normLine.includes('VERESIYE') ||
+      normLine.includes('MUSTERI HESAP') ||
+      normLine.includes('ACIK ADISYON')
+    ) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) openAccountTotal = amt;
       continue;
     }
 
-    if (normLine.includes('ACIK OLAN MASALAR')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        openTablesTotal = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (normLine.includes('ACIK OLAN MASALAR') || normLine.includes('ACIK MASALAR') || normLine.includes('ACIK MASA')) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) openTablesTotal = amt;
       continue;
     }
 
-    if (normLine.includes('KASA GELIR GIDER')) {
-      const nums = line.match(/-?[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|-?[0-9]+/g);
-      if (nums && nums.length > 0) {
-        kasaGelirGiderTotal = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (normLine.includes('KASA GELIR GIDER') || normLine.includes('GELIR GIDER TOPLAM')) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) kasaGelirGiderTotal = amt;
       continue;
     }
 
-    if (normLine.includes('GENEL KASA TOPLAMI') || normLine.includes('GENEL KASA') || normLine.includes('NET SATIS')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        netGeneralTotal = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (
+      normLine.includes('GENEL KASA TOPLAMI') ||
+      normLine.includes('GENEL KASA') ||
+      normLine.includes('NET SATIS') ||
+      normLine.includes('NET CIRO') ||
+      normLine.includes('GENEL TOPLAM') ||
+      normLine.includes('KASA TOPLAMI')
+    ) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) netGeneralTotal = amt;
       continue;
     }
 
-    if (normLine.includes('KREDI KARTI') || normLine.includes('K.KARTI') || normLine.includes('POS TOPLAM')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        creditCardSales = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (
+      normLine.includes('KREDI KARTI') ||
+      normLine.includes('K KARTI') ||
+      normLine.includes('POS TOPLAM') ||
+      normLine.includes('KARTLI SATIS') ||
+      normLine.includes('BANKA KARTI') ||
+      normLine.includes('KART TAHSILAT')
+    ) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) creditCardSales = amt;
       continue;
     }
 
-    if (normLine.includes('NAKIT') || normLine.includes('PESIN')) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        cashSales = parseTRNumber(nums[nums.length - 1]);
-      }
+    if (
+      normLine.includes('NAKIT SATIS') ||
+      normLine.includes('NAKIT HASILAT') ||
+      normLine.includes('NAKIT TAHSILAT') ||
+      normLine.includes('PESIN') ||
+      normLine.includes('NAKIT')
+    ) {
+      const amt = extractMoneyAmount(line, lines[i + 1]);
+      if (amt > 0) cashSales = amt;
       continue;
     }
 
@@ -698,11 +784,77 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     }
   });
 
-  const groupsSum = groups.reduce((acc, g) => acc + (Number(g.amount) || 0), 0);
+  // Clean up any groups or items that might actually be discount or open account summary rows
+  const sanitizedGroups: ExtractedGroupItem[] = [];
+  for (const g of groups) {
+    const gNorm = normalizeTR(g.name);
+    if (gNorm.includes('ISKONTO') || gNorm.includes('SKONTO') || gNorm.includes('INDIRIM')) {
+      if (discountAmount <= 0 && g.amount > 0) {
+        discountAmount = g.amount;
+      }
+      continue;
+    }
+    if (gNorm.includes('ACIK HESAP') || gNorm.includes('CARI') || gNorm.includes('VERESIYE')) {
+      if (openAccountTotal <= 0 && g.amount > 0) {
+        openAccountTotal = g.amount;
+      }
+      continue;
+    }
+
+    // Also filter individual items inside this group
+    if (g.items && g.items.length > 0) {
+      const validItems: SoldProductItem[] = [];
+      for (const it of g.items) {
+        const itNorm = normalizeTR(it.name);
+        if (itNorm.includes('ISKONTO') || itNorm.includes('SKONTO') || itNorm.includes('INDIRIM')) {
+          if (discountAmount <= 0 && it.totalPrice > 0) {
+            discountAmount = it.totalPrice;
+          }
+          continue;
+        }
+        if (itNorm.includes('ACIK HESAP') || itNorm.includes('CARI') || itNorm.includes('VERESIYE')) {
+          if (openAccountTotal <= 0 && it.totalPrice > 0) {
+            openAccountTotal = it.totalPrice;
+          }
+          continue;
+        }
+        validItems.push(it);
+      }
+      g.items = validItems;
+      if (g.items.length > 0) {
+        g.amount = g.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
+        g.itemCount = g.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
+      }
+    }
+    sanitizedGroups.push(g);
+  }
+
+  // Secondary fallback for discount and open accounts directly from raw text if not yet found
+  if (discountAmount <= 0) {
+    const discRegex = /(?:TOPLAM\s*I?SKONTO|I?SKONTO\s*(?:TOPLAMI|TUTARI|TUTAR)?|TOPLAM\s*INDIRIM|INDIRIM\s*(?:TOPLAMI|TUTARI)?|YAPILAN\s*I?SKONTO|SATIR\s*I?SKONTOSU|ADISYON\s*I?SKONTOSU|TOPLAM\s*İ?SKONTO|İ?SKONTO\s*(?:TOPLAMI|TUTARI)?|TOPLAM\s*İNDİRİM|İNDİRİM\s*(?:TOPLAMI|TUTARI)?|YAPILAN\s*İ?SKONTO|I?SKONTO|INDIRIM|İ?SKONTO|İNDİRİM)[\s:.\-_=]*([0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+)/i;
+    const mDisc = rawText.match(discRegex);
+    if (mDisc) discountAmount = parseTRNumber(mDisc[1]);
+  }
+
+  if (openAccountTotal <= 0) {
+    const openAccRegex = /(?:ACIK\s*HESAP(?:\s*(?:TOPLAMI|TUTARI))?|CARI\s*(?:HESAP|SATIS)?(?:\s*(?:TOPLAMI|TUTARI))?|VERESIYE(?:\s*(?:TOPLAMI|SATIS))?|ACIK\s*ADISYON(?:LAR)?|AÇIK\s*HESAP(?:\s*TOPLAMI)?|CARİ\s*HESAP(?:\s*TOPLAMI)?|VERESİYE(?:\s*TOPLAMI)?)[\s:.\-_=]*([0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+)/i;
+    const mOpen = rawText.match(openAccRegex);
+    if (mOpen) openAccountTotal = parseTRNumber(mOpen[1]);
+  }
+
+  const groupsSum = sanitizedGroups.reduce((acc, g) => acc + (Number(g.amount) || 0), 0);
 
   // If gross product sales was not detected directly from summary, infer from sum of groups
   if (grossProductSales <= 0 && groupsSum > 0) {
     grossProductSales = groupsSum;
+  }
+
+  // If gross and net were found, but discount was not captured by text:
+  if (discountAmount <= 0 && grossProductSales > 0 && netGeneralTotal > 0 && grossProductSales > netGeneralTotal) {
+    const diff = Math.round((grossProductSales - netGeneralTotal - openAccountTotal) * 100) / 100;
+    if (diff > 0) {
+      discountAmount = diff;
+    }
   }
 
   // If net general total was not found, calculate: Gross - Discount - OpenAccounts
@@ -715,7 +867,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
 
   // Calculate percentages for groups based on gross or total sales
   const baseForPct = grossProductSales > 0 ? grossProductSales : (groupsSum > 0 ? groupsSum : 1);
-  groups.forEach((g) => {
+  sanitizedGroups.forEach((g) => {
     g.percentage = Math.round(((Number(g.amount) || 0) / baseForPct) * 1000) / 10;
   });
 
@@ -752,7 +904,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     netGeneralTotal,
     complimentaryAmount,
     cancelledAmount,
-    groups,
+    groups: sanitizedGroups,
     detectedDate,
     tableCount,
     guestCount,

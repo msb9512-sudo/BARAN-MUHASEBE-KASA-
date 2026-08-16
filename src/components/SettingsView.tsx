@@ -19,10 +19,12 @@ import {
   ShieldAlert,
   Database,
   X,
+  Palette,
 } from 'lucide-react';
 import { PosDevice, ExpenseCategory, DailyEntry, CashExpense, Invoice } from '../types';
 import { RestaurantProfile } from '../utils/storage';
 import { formatDateTR, formatCurrency, getTodayIsoDate } from '../utils/formatters';
+import { ThemeAppearanceSettings } from './ThemeAppearanceSettings';
 
 interface SettingsViewProps {
   posDevices: PosDevice[];
@@ -55,7 +57,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onResetAllFinancialData,
   onResetSingleDay,
 }) => {
-  const [activeSection, setActiveSection] = useState<'kase' | 'pos' | 'categories' | 'system'>('kase');
+  const [activeSection, setActiveSection] = useState<'kase' | 'pos' | 'categories' | 'appearance' | 'system'>('kase');
   const [profileForm, setProfileForm] = useState<RestaurantProfile>({
     ...profile,
     companyTitle: profile.companyTitle || profile.name || '',
@@ -244,6 +246,18 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           >
             <Tag className="w-4 h-4" />
             <span>Gider Kategorileri ({categoriesList.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveSection('appearance')}
+            className={`flex items-center space-x-2 px-3.5 py-2 rounded-lg transition cursor-pointer font-semibold ${
+              activeSection === 'appearance'
+                ? 'bg-orange-600 text-white shadow-md'
+                : 'bg-[#0d1117] text-gray-400 hover:text-white hover:bg-[#21262d] border border-[#30363d]'
+            }`}
+          >
+            <Palette className="w-4 h-4" />
+            <span>Görünüm, Tema & Yazı Tipi</span>
           </button>
 
           <button
@@ -979,6 +993,11 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           </div>
         </div>
+      )}
+
+      {/* SECTION 4: Görünüm, Tema & Yazı Tipi Tercihleri */}
+      {activeSection === 'appearance' && (
+        <ThemeAppearanceSettings />
       )}
 
       {/* SAFETY CONFIRMATION MODAL */}

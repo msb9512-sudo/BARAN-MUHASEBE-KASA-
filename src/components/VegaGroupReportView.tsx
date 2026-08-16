@@ -20,19 +20,25 @@ import {
   Edit2,
   Save,
 } from 'lucide-react';
-import { DailyEntry, VegaGroupItem, SoldProductItem } from '../types';
+import { DailyEntry, VegaGroupItem, SoldProductItem, TabType } from '../types';
 import { formatCurrency, formatPercent, parseNumberInput, formatDateTR } from '../utils/formatters';
+import { SmartMoneyInput } from './SmartMoneyInput';
+import { CashierStepFooter } from './CashierStepFooter';
 
 interface VegaGroupReportViewProps {
   currentEntry: DailyEntry;
   onUpdateEntry: (updated: DailyEntry) => void;
   onOpenVegaImport?: () => void;
+  onNavigate?: (tab: TabType) => void;
+  onPromptOpenAccount?: (amount: number, date: string) => void;
 }
 
 export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
   currentEntry,
   onUpdateEntry,
   onOpenVegaImport,
+  onNavigate,
+  onPromptOpenAccount,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>({});
@@ -260,6 +266,22 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
     });
   };
 
+  // Update Open Account (Cari) amount
+  const handleOpenAccountChange = (val: string | number) => {
+    const openAcc = typeof val === 'number' ? val : parseNumberInput(val);
+    const autoNet = Math.max(0, grossSales - discountTotal - openAcc);
+
+    onUpdateEntry({
+      ...currentEntry,
+      vegaReport: {
+        ...currentEntry.vegaReport,
+        openAccountTotal: openAcc,
+        totalSales: autoNet,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
   // Filter products by search term
   const filterMatches = (text: string) => {
     if (!searchTerm.trim()) return true;
@@ -335,67 +357,96 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
         </div>
       </div>
 
-      {/* 2. AUTOMATIC CALCULATION FLOW BANNER (BRÜT - İSKONTO = NET CİRO) */}
+      {/* 2. AUTOMATIC CALCULATION FLOW BANNER (BRÜT - İSKONTO - AÇIK HESAP = NET CİRO) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 font-mono">
         {/* Card 1: Brüt Ürün Satışları */}
         <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-[11px] text-gray-400 uppercase font-semibold block">
+          <span className="text-xs text-gray-400 uppercase font-semibold block">
             1. Ürün Toplam Satış (Brüt)
           </span>
           <div className="text-2xl font-bold text-white mt-1">
             {formatCurrency(grossSales)}
           </div>
-          <span className="text-[10px] text-gray-500 block mt-0.5">
+          <span className="text-xs text-gray-400 block mt-0.5 font-medium">
             {groups.length} Kategori • {totalItemsCount.toLocaleString('tr-TR')} Adet Ürün
           </span>
         </div>
 
         {/* Card 2: Yapılan İskonto (Düşülen Tutar) */}
-        <div className="p-4 bg-rose-950/20 border border-rose-500/40 rounded-xl shadow-md">
+        <div className="p-4 bg-rose-500/10 border border-rose-500/40 rounded-xl shadow-md">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-rose-400 uppercase font-bold tracking-wider">
+            <span className="text-xs text-rose-400 uppercase font-bold tracking-wider">
               2. (-) Toplam İskonto
             </span>
-            <span className="text-[10px] bg-rose-500/20 text-rose-300 font-semibold px-2 py-0.5 rounded">
-              Otomatik Düşüldü
+            <span className="text-xs bg-rose-500/20 text-rose-300 font-semibold px-2 py-0.5 rounded">
+              Düşülen İndirim
             </span>
           </div>
-          <div className="text-2xl font-bold text-rose-400 mt-1">
-            -{formatCurrency(discountTotal)}
+          <div className="flex items-center space-x-1.5 mt-1.5">
+            <span className="text-rose-400 font-bold text-lg">-</span>
+            <SmartMoneyInput
+              value={discountTotal}
+              onChange={(val) => handleDiscountChange(val)}
+              placeholder="0,00"
+              className="px-2.5 py-1 text-xl font-bold text-rose-400 border-rose-500/50 focus:border-rose-400"
+            />
           </div>
-          <span className="text-[10px] text-gray-400 block mt-0.5">
-            Hesaptan otomatik düşülen indirim
+          <span className="text-xs text-rose-400/90 block mt-1 font-medium">
+            {discountTotal > 0 ? `-${formatCurrency(discountTotal)} düşüldü` : 'İskonto yok (düzenlenebilir)'}
           </span>
         </div>
 
         {/* Card 3: Açık Hesap / Diğer */}
-        <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-[11px] text-gray-400 uppercase font-semibold block">
-            3. (-) Açık Hesap / Cari
-          </span>
-          <div className="text-2xl font-bold text-amber-400 mt-1">
-            {openAccountTotal > 0 ? `-${formatCurrency(openAccountTotal)}` : '0,00 ₺'}
+        <div className="p-4 bg-amber-500/10 border border-amber-500/40 rounded-xl shadow-md">
+          <div className="flex items-center justify-between">
+            <span className="text-xs text-amber-400 uppercase font-bold tracking-wider">
+              3. (-) Açık Hesap / Cari
+            </span>
+            <div className="flex items-center space-x-2">
+              {openAccountTotal > 0 && onPromptOpenAccount && (
+                <button
+                  type="button"
+                  onClick={() => onPromptOpenAccount(openAccountTotal, currentEntry.date)}
+                  className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-0.5 rounded cursor-pointer transition shadow-xs"
+                  title="Bu açık hesabı bir müşteriye borç olarak ata"
+                >
+                  Müşteriye Ata ➜
+                </button>
+              )}
+              <span className="text-xs bg-amber-500/20 text-amber-300 font-semibold px-2 py-0.5 rounded">
+                Veresiye
+              </span>
+            </div>
           </div>
-          <span className="text-[10px] text-gray-500 block mt-0.5">
-            Ödenmemiş / Açık kalan adisyonlar
+          <div className="flex items-center space-x-1.5 mt-1.5">
+            <span className="text-amber-400 font-bold text-lg">-</span>
+            <SmartMoneyInput
+              value={openAccountTotal}
+              onChange={(val) => handleOpenAccountChange(val)}
+              placeholder="0,00"
+              className="px-2.5 py-1 text-xl font-bold text-amber-400 border-amber-500/50 focus:border-amber-400"
+            />
+          </div>
+          <span className="text-xs text-amber-400/90 block mt-1 font-medium">
+            {openAccountTotal > 0 ? `-${formatCurrency(openAccountTotal)} açık hesap` : 'Açık hesap yok (düzenlenebilir)'}
           </span>
         </div>
 
         {/* Card 4: Genel Kasa Toplamı (Net Satış) */}
-        <div className="p-4 bg-emerald-950/25 border-2 border-emerald-500/50 rounded-xl shadow-lg relative overflow-hidden">
+        <div className="p-4 bg-emerald-500/10 border-2 border-emerald-500/50 rounded-xl shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-emerald-400 uppercase font-bold tracking-wider">
+            <span className="text-xs text-emerald-400 uppercase font-bold tracking-wider">
               (=) GENEL KASA TOPLAMI (NET)
             </span>
-            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">
+            <span className="text-xs bg-emerald-500/20 text-emerald-300 font-bold px-2 py-0.5 rounded border border-emerald-500/30">
               Net Ciro
             </span>
           </div>
           <div className="text-2xl font-bold text-emerald-400 mt-1">
             {formatCurrency(netGeneralTotal)}
           </div>
-          <span className="text-[10px] text-gray-300 block mt-0.5">
-            Brüt Satış - İskonto - Açık Hesap
+          <span className="text-xs text-gray-300 block mt-0.5 font-medium">
+            Brüt ({formatCurrency(grossSales)}) - İskonto ({formatCurrency(discountTotal)}) - Açık Hesap ({formatCurrency(openAccountTotal)})
           </span>
         </div>
       </div>
@@ -759,22 +810,22 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
         <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
           <div className="flex items-center space-x-2 text-sm font-bold text-white">
             <Calculator className="w-4 h-4 text-orange-400" />
-            <span>Rapor Sonu Mutabakat & Otomatik İskonto Düşümü</span>
+            <span>Rapor Sonu Mutabakat & Otomatik İskonto / Açık Hesap Düşümü</span>
           </div>
           <span className="text-xs text-gray-400">PDF Rapor Sonu Özeti</span>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 text-xs">
           {/* Brüt Ürün Toplamı */}
           <div className="p-3 bg-[#0d1117] rounded-lg border border-[#30363d]">
-            <span className="text-gray-400 block mb-1">Ürün Toplam Satış (Brüt)</span>
+            <span className="text-gray-400 block mb-1">1. Ürün Satış (Brüt)</span>
             <div className="text-lg font-bold text-white">{formatCurrency(grossSales)}</div>
-            <span className="text-[10px] text-gray-500">Tüm ürünlerin liste fiyatı toplamı</span>
+            <span className="text-[10px] text-gray-500">Tüm grupların liste fiyatı toplamı</span>
           </div>
 
           {/* Toplam İskonto Girişi & Düşümü */}
           <div className="p-3 bg-rose-950/20 rounded-lg border border-rose-500/40">
-            <span className="text-rose-400 font-bold block mb-1">(-) Yapılan Toplam İskonto</span>
+            <span className="text-rose-400 font-bold block mb-1">2. (-) Yapılan Toplam İskonto</span>
             <div className="relative">
               <input
                 type="number"
@@ -791,9 +842,28 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
             </span>
           </div>
 
+          {/* Açık Hesap (Cari / Veresiye) */}
+          <div className="p-3 bg-amber-950/20 rounded-lg border border-amber-500/40">
+            <span className="text-amber-400 font-bold block mb-1">3. (-) Açık Hesap (Cari)</span>
+            <div className="relative">
+              <input
+                type="number"
+                step="0.01"
+                value={openAccountTotal || ''}
+                onChange={(e) => handleOpenAccountChange(e.target.value)}
+                placeholder="0.00"
+                className="w-full bg-[#161b22] border border-amber-500/40 rounded px-2.5 py-1 text-sm font-bold text-amber-400 text-right pr-6 focus:outline-none focus:border-amber-400"
+              />
+              <span className="absolute right-2 top-1.5 text-xs text-amber-400 font-bold">₺</span>
+            </div>
+            <span className="text-[10px] text-gray-400 mt-1 block">
+              Ödenmemiş açık hesap toplamı
+            </span>
+          </div>
+
           {/* Genel Kasa Toplamı (Net) */}
           <div className="p-3 bg-emerald-950/25 rounded-lg border border-emerald-500/40">
-            <span className="text-emerald-400 font-bold block mb-1">(=) Genel Kasa Toplamı (Net Ciro)</span>
+            <span className="text-emerald-400 font-bold block mb-1">4. (=) Net Genel Kasa (Ciro)</span>
             <div className="text-xl font-bold text-emerald-400">{formatCurrency(netGeneralTotal)}</div>
             <span className="text-[10px] text-gray-300">
               Kasaya ve POS'a intikal eden net hasılat
@@ -801,6 +871,14 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Sequential Cashier Workflow Navigation Footer */}
+      {onNavigate && (
+        <CashierStepFooter
+          currentTab="groups"
+          onNavigate={onNavigate}
+        />
+      )}
     </div>
   );
 };

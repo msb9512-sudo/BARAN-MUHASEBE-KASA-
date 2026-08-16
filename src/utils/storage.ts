@@ -4,6 +4,11 @@ import {
   Invoice,
   POSDevice,
   ExpenseCategory,
+  OpenAccountCustomer,
+  OpenAccountTransaction,
+  MasterSafeState,
+  SafeTransaction,
+  BanknoteCounts,
 } from '../types';
 import { getTodayIsoDate } from './formatters';
 
@@ -14,6 +19,9 @@ const STORAGE_KEYS = {
   POS_DEVICES: 'restoran_muhasebe_pos_clean_v2',
   EXPENSE_CATEGORIES: 'restoran_muhasebe_categories_clean_v2',
   RESTAURANT_PROFILE: 'restoran_muhasebe_profile_clean_v2',
+  OPEN_ACCOUNT_CUSTOMERS: 'restoran_muhasebe_open_account_customers_v1',
+  OPEN_ACCOUNT_TRANSACTIONS: 'restoran_muhasebe_open_account_txs_v1',
+  MASTER_SAFE: 'restoran_muhasebe_master_safe_v1',
 };
 
 export interface RestaurantProfile {
@@ -61,6 +69,8 @@ export function getInitialCleanData(): {
   entries: DailyEntry[];
   expenses: CashExpense[];
   invoices: Invoice[];
+  openAccountCustomers: OpenAccountCustomer[];
+  openAccountTransactions: OpenAccountTransaction[];
   posDevices: POSDevice[];
   categories: ExpenseCategory[];
   profile: RestaurantProfile;
@@ -69,6 +79,8 @@ export function getInitialCleanData(): {
     entries: [],
     expenses: [],
     invoices: [],
+    openAccountCustomers: [],
+    openAccountTransactions: [],
     posDevices: DEFAULT_POS_DEVICES,
     categories: DEFAULT_EXPENSE_CATEGORIES,
     profile: DEFAULT_PROFILE,
@@ -262,6 +274,117 @@ export function getOrCreateDailyEntry(date: string, allEntries: DailyEntry[], po
 /**
  * Backup / Export all app data as JSON string
  */
+export function loadOpenAccountCustomers(): OpenAccountCustomer[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.OPEN_ACCOUNT_CUSTOMERS);
+    if (!raw) {
+      return [];
+    }
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load open account customers', e);
+    return [];
+  }
+}
+
+export const DEFAULT_BANKNOTES: BanknoteCounts = {
+  200: 0,
+  100: 0,
+  50: 0,
+  20: 0,
+  10: 0,
+  5: 0,
+  1: 0,
+};
+
+export const DEFAULT_MASTER_SAFE: MasterSafeState = {
+  banknotes: { ...DEFAULT_BANKNOTES },
+  transactions: [],
+  lastUpdated: new Date().toISOString(),
+};
+
+export function calculateBanknoteTotal(banknotes: BanknoteCounts): number {
+  if (!banknotes) return 0;
+  return (
+    (Number(banknotes[200]) || 0) * 200 +
+    (Number(banknotes[100]) || 0) * 100 +
+    (Number(banknotes[50]) || 0) * 50 +
+    (Number(banknotes[20]) || 0) * 20 +
+    (Number(banknotes[10]) || 0) * 10 +
+    (Number(banknotes[5]) || 0) * 5 +
+    (Number(banknotes[1]) || 0) * 1
+  );
+}
+
+export function calculateTotalBanknoteCount(banknotes: BanknoteCounts): number {
+  if (!banknotes) return 0;
+  return (
+    (Number(banknotes[200]) || 0) +
+    (Number(banknotes[100]) || 0) +
+    (Number(banknotes[50]) || 0) +
+    (Number(banknotes[20]) || 0) +
+    (Number(banknotes[10]) || 0) +
+    (Number(banknotes[5]) || 0) +
+    (Number(banknotes[1]) || 0)
+  );
+}
+
+export function loadMasterSafe(): MasterSafeState {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.MASTER_SAFE);
+    if (!raw) {
+      saveMasterSafe(DEFAULT_MASTER_SAFE);
+      return DEFAULT_MASTER_SAFE;
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      banknotes: { ...DEFAULT_BANKNOTES, ...(parsed.banknotes || {}) },
+      transactions: parsed.transactions || [],
+      lastUpdated: parsed.lastUpdated || new Date().toISOString(),
+    };
+  } catch (e) {
+    console.error('Failed to load master safe', e);
+    return DEFAULT_MASTER_SAFE;
+  }
+}
+
+export function saveMasterSafe(safe: MasterSafeState): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.MASTER_SAFE, JSON.stringify(safe));
+  } catch (e) {
+    console.error('Failed to save master safe', e);
+  }
+}
+
+export function saveOpenAccountCustomers(customers: OpenAccountCustomer[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.OPEN_ACCOUNT_CUSTOMERS, JSON.stringify(customers));
+  } catch (e) {
+    console.error('Failed to save open account customers', e);
+  }
+}
+
+export function loadOpenAccountTransactions(): OpenAccountTransaction[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.OPEN_ACCOUNT_TRANSACTIONS);
+    if (!raw) {
+      return [];
+    }
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load open account transactions', e);
+    return [];
+  }
+}
+
+export function saveOpenAccountTransactions(transactions: OpenAccountTransaction[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.OPEN_ACCOUNT_TRANSACTIONS, JSON.stringify(transactions));
+  } catch (e) {
+    console.error('Failed to save open account transactions', e);
+  }
+}
+
 export function exportFullBackupJSON(): string {
   const data = {
     version: '2.0',
@@ -272,6 +395,9 @@ export function exportFullBackupJSON(): string {
     dailyEntries: loadDailyEntries(),
     cashExpenses: loadCashExpenses(),
     invoices: loadInvoices(),
+    openAccountCustomers: loadOpenAccountCustomers(),
+    openAccountTransactions: loadOpenAccountTransactions(),
+    masterSafe: loadMasterSafe(),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -291,6 +417,9 @@ export function restoreBackupJSON(jsonStr: string): boolean {
     if (data.dailyEntries) saveDailyEntries(data.dailyEntries);
     if (data.cashExpenses) saveCashExpenses(data.cashExpenses);
     if (data.invoices) saveInvoices(data.invoices);
+    if (data.openAccountCustomers) saveOpenAccountCustomers(data.openAccountCustomers);
+    if (data.openAccountTransactions) saveOpenAccountTransactions(data.openAccountTransactions);
+    if (data.masterSafe) saveMasterSafe(data.masterSafe);
     return true;
   } catch (e) {
     console.error('Backup restore failed', e);
@@ -303,6 +432,9 @@ export interface AppState {
   entries: Record<string, DailyEntry>;
   expenses: CashExpense[];
   invoices: Invoice[];
+  openAccountCustomers: OpenAccountCustomer[];
+  openAccountTransactions: OpenAccountTransaction[];
+  masterSafe: MasterSafeState;
   posDevices: POSDevice[];
   categories: ExpenseCategory[];
   profile: RestaurantProfile;
@@ -321,6 +453,9 @@ export function loadAppState(): AppState {
     entries: entriesRecord,
     expenses: loadCashExpenses(),
     invoices: loadInvoices(),
+    openAccountCustomers: loadOpenAccountCustomers(),
+    openAccountTransactions: loadOpenAccountTransactions(),
+    masterSafe: loadMasterSafe(),
     posDevices: loadPOSDevices(),
     categories: loadExpenseCategories(),
     profile: loadRestaurantProfile(),
@@ -331,6 +466,9 @@ export function saveAppState(state: AppState): void {
   saveDailyEntries(Object.values(state.entries));
   saveCashExpenses(state.expenses);
   saveInvoices(state.invoices);
+  saveOpenAccountCustomers(state.openAccountCustomers || []);
+  saveOpenAccountTransactions(state.openAccountTransactions || []);
+  saveMasterSafe(state.masterSafe || DEFAULT_MASTER_SAFE);
   savePOSDevices(state.posDevices);
   saveExpenseCategories(state.categories);
   saveRestaurantProfile(state.profile);
@@ -350,10 +488,16 @@ export function resetAllFinancialData(currentState: AppState): AppState {
     entries: {},
     expenses: [],
     invoices: [],
+    openAccountCustomers: [],
+    openAccountTransactions: [],
+    masterSafe: DEFAULT_MASTER_SAFE,
   };
   saveDailyEntries([]);
   saveCashExpenses([]);
   saveInvoices([]);
+  saveOpenAccountCustomers([]);
+  saveOpenAccountTransactions([]);
+  saveMasterSafe(DEFAULT_MASTER_SAFE);
   return cleanState;
 }
 
@@ -393,6 +537,8 @@ export function resetToInitialSampleData(): void {
   saveDailyEntries(clean.entries);
   saveCashExpenses(clean.expenses);
   saveInvoices(clean.invoices);
+  saveOpenAccountCustomers(clean.openAccountCustomers);
+  saveOpenAccountTransactions(clean.openAccountTransactions);
   savePOSDevices(clean.posDevices);
   saveExpenseCategories(clean.categories);
   saveRestaurantProfile(clean.profile);

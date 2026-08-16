@@ -20,9 +20,10 @@ import {
   Layers,
   Sparkles,
 } from 'lucide-react';
-import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus } from '../types';
+import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportInvoicesToExcel } from '../utils/excelExport';
+import { CashierStepFooter } from './CashierStepFooter';
 
 interface InvoicesViewProps {
   selectedDate: string;
@@ -31,6 +32,7 @@ interface InvoicesViewProps {
   onUpdateInvoice: (invoice: Invoice) => void;
   onDeleteInvoice: (id: string) => void;
   onAddPayment: (invoiceId: string, payment: Omit<InvoicePayment, 'id' | 'createdAt'>) => void;
+  onNavigate?: (tab: TabType) => void;
 }
 
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
@@ -40,6 +42,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   onUpdateInvoice,
   onDeleteInvoice,
   onAddPayment,
+  onNavigate,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | PaymentStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState('all');
@@ -1028,6 +1031,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+      {/* Sequential Cashier Workflow Navigation Footer */}
+      {onNavigate && (
+        <CashierStepFooter
+          currentTab="invoices"
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );

@@ -14,8 +14,11 @@ import {
   Tag,
 } from 'lucide-react';
 import { CashExpense, ExpenseCategory } from '../types';
-import { formatCurrency, formatDateTR } from '../utils/formatters';
+import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportExpensesToExcel } from '../utils/excelExport';
+import { SmartMoneyInput } from './SmartMoneyInput';
+import { CashierStepFooter } from './CashierStepFooter';
+import { TabType } from '../types';
 
 interface CashExpensesViewProps {
   selectedDate: string;
@@ -24,6 +27,7 @@ interface CashExpensesViewProps {
   onAddExpense: (expense: Omit<CashExpense, 'id' | 'createdAt'>) => void;
   onUpdateExpense: (expense: CashExpense) => void;
   onDeleteExpense: (id: string) => void;
+  onNavigate?: (tab: TabType) => void;
 }
 
 export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
@@ -33,6 +37,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   onAddExpense,
   onUpdateExpense,
   onDeleteExpense,
+  onNavigate,
 }) => {
   const [filterDateMode, setFilterDateMode] = useState<'selected-date' | 'all-month'>('selected-date');
   const [searchQuery, setSearchQuery] = useState('');
@@ -134,7 +139,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    const amountNum = parseFloat(formData.amount.replace(',', '.'));
+    const amountNum = parseNumberInput(formData.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
       alert('Lütfen geçerli bir harcama tutarı giriniz.');
       return;
@@ -509,18 +514,12 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                   <label className="block font-semibold text-gray-300 mb-1">
                     Tutar (TL) *
                   </label>
-                  <div className="relative">
-                    <input
-                      type="number"
-                      step="0.01"
-                      required
-                      value={formData.amount}
-                      onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
-                      placeholder="0.00"
-                      className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm font-bold text-rose-400 focus:border-orange-500 focus:outline-none pr-6"
-                    />
-                    <span className="absolute right-2.5 top-2 font-bold text-gray-500">₺</span>
-                  </div>
+                  <SmartMoneyInput
+                    value={formData.amount}
+                    onChange={(val) => setFormData({ ...formData, amount: val.toString() })}
+                    placeholder="0,00"
+                    className="px-3 py-2 text-sm font-bold text-rose-400 focus:border-orange-500"
+                  />
                 </div>
 
                 <div>
@@ -598,6 +597,13 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
             </form>
           </div>
         </div>
+      )}
+      {/* Sequential Cashier Workflow Navigation Footer */}
+      {onNavigate && (
+        <CashierStepFooter
+          currentTab="expenses"
+          onNavigate={onNavigate}
+        />
       )}
     </div>
   );

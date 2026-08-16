@@ -16,19 +16,31 @@ import {
   Calendar,
   Sparkles,
   ArrowRight,
+  Coins,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { DailyEntry, CashExpense, Invoice } from '../types';
+import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts } from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR } from '../utils/formatters';
 import { calculateDailyRegister, auditDailyEntry } from '../utils/calculations';
 import { exportDailyRegisterToExcel } from '../utils/excelExport';
+import { CashierStepFooter } from './CashierStepFooter';
+import { BanknoteCountModal, BanknoteModalSubmitData } from './BanknoteCountModal';
 
 interface DailyClosingViewProps {
   currentEntry: DailyEntry;
   onUpdateEntry: (updated: DailyEntry) => void;
   expenses: CashExpense[];
   invoices: Invoice[];
+  masterSafe?: MasterSafeState;
+  onTransferToMasterSafe?: (transferData: {
+    date: string;
+    amount: number;
+    banknotes: BanknoteCounts;
+    enteredBy: string;
+    description: string;
+  }) => void;
   onOpenBossReport: () => void;
+  onNavigate?: (tab: TabType) => void;
 }
 
 export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
@@ -36,13 +48,21 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   onUpdateEntry,
   expenses,
   invoices,
+  masterSafe,
+  onTransferToMasterSafe,
   onOpenBossReport,
+  onNavigate,
 }) => {
   const [accountantName, setAccountantName] = useState(currentEntry.closedBy || 'Mehmet Muhasebe');
+  const [isBanknoteModalOpen, setIsBanknoteModalOpen] = useState(false);
+
   const reg = calculateDailyRegister(currentEntry, expenses, invoices);
   const warnings = auditDailyEntry(currentEntry, expenses, invoices);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
   const isClosed = currentEntry.status === 'closed';
+
+  // Remaining positive cash that should be transferred to Master Safe
+  const remainingCashToTransfer = reg.actualCashInHand > 0 ? reg.actualCashInHand : reg.expectedCash;
 
   const handleCloseDay = () => {
     if (errorCount > 0) {
@@ -70,6 +90,39 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
     } catch {
       // ignore
     }
+
+    // If there is cash to transfer and not yet transferred, prompt the banknote modal
+    if (remainingCashToTransfer > 0 && !currentEntry.vaultTransfer?.transferred) {
+      setIsBanknoteModalOpen(true);
+    }
+  };
+
+  const handleBanknoteTransferConfirm = (data: BanknoteModalSubmitData) => {
+    // 1. Notify parent master safe
+    if (onTransferToMasterSafe) {
+      onTransferToMasterSafe({
+        date: currentEntry.date,
+        amount: data.totalAmount,
+        banknotes: data.banknotes,
+        enteredBy: data.enteredBy || accountantName,
+        description: data.description || `${formatDateTR(currentEntry.date)} Gün Sonu Kalan Kasa Nakti`,
+      });
+    }
+
+    // 2. Mark entry as transferred
+    onUpdateEntry({
+      ...currentEntry,
+      vaultTransfer: {
+        transferred: true,
+        amount: data.totalAmount,
+        banknotes: data.banknotes,
+        transferredAt: new Date().toISOString(),
+        transferredBy: data.enteredBy || accountantName,
+      },
+      updatedAt: new Date().toISOString(),
+    });
+
+    setIsBanknoteModalOpen(false);
   };
 
   const handleReopenDay = () => {
@@ -188,6 +241,28 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                   </span>
                 </div>
                 <div className="p-3 divide-y divide-[#21262d]">
+                  {currentEntry.vegaReport.grossProductSales ? (
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-gray-400">Brüt Ürün Satışı:</span>
+                      <strong className="text-white">{formatCurrency(currentEntry.vegaReport.grossProductSales)}</strong>
+                    </div>
+                  ) : null}
+                  {(currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount) ? (
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-rose-400 font-semibold">(-) Toplam İskonto:</span>
+                      <strong className="text-rose-400">-{formatCurrency(currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount || 0)}</strong>
+                    </div>
+                  ) : null}
+                  {currentEntry.vegaReport.openAccountTotal ? (
+                    <div className="py-1.5 flex justify-between">
+                      <span className="text-amber-400 font-semibold">(-) Açık Hesap (Cari):</span>
+                      <strong className="text-amber-400">-{formatCurrency(currentEntry.vegaReport.openAccountTotal)}</strong>
+                    </div>
+                  ) : null}
+                  <div className="py-1.5 flex justify-between font-bold">
+                    <span className="text-gray-300">(=) Net Satış (Ciro):</span>
+                    <strong className="text-emerald-400">{formatCurrency(reg.totalSales)}</strong>
+                  </div>
                   <div className="py-1.5 flex justify-between">
                     <span className="text-gray-400">Nakit Satış:</span>
                     <strong className="text-white">{formatCurrency(reg.cashSales)}</strong>
@@ -435,9 +510,111 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
             </div>
 
           </div>
+
+          {/* Master Safe Vault Transfer Card */}
+          <div className="bg-[#161b22] rounded-xl border border-amber-500/40 p-5 shadow-lg space-y-3 font-mono">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center space-x-2">
+                <Wallet className="w-5 h-5 text-amber-400" />
+                <h3 className="text-sm font-bold text-white">
+                  Ana Kasaya Kalan Nakit Devri
+                </h3>
+              </div>
+              <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                BANKNOT SAYIMI
+              </span>
+            </div>
+
+            {currentEntry.vaultTransfer?.transferred ? (
+              <div className="p-3.5 rounded-xl bg-[#0d1117] border border-emerald-500/40 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-emerald-400 flex items-center space-x-1.5">
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Ana Kasaya Aktarıldı</span>
+                  </span>
+                  <strong className="text-sm text-white font-black">
+                    {formatCurrency(currentEntry.vaultTransfer.amount)}
+                  </strong>
+                </div>
+
+                {/* Banknotes Breakdown */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {[200, 100, 50, 20, 10, 5, 1]
+                    .filter((d) => Number(currentEntry.vaultTransfer?.banknotes?.[d]) > 0)
+                    .map((d) => (
+                      <span
+                        key={d}
+                        className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-[#161b22] border border-[#30363d] text-[11px] text-gray-300"
+                      >
+                        <strong className="text-amber-400">{d} ₺</strong>
+                        <span>×</span>
+                        <strong className="text-white">
+                          {currentEntry.vaultTransfer?.banknotes[d]}
+                        </strong>
+                      </span>
+                    ))}
+                </div>
+
+                <div className="flex items-center justify-between pt-2 border-t border-[#21262d] text-[11px] text-gray-400">
+                  <span>
+                    Aktaran: <strong className="text-gray-300">{currentEntry.vaultTransfer.transferredBy}</strong>
+                  </span>
+                  <button
+                    onClick={() => setIsBanknoteModalOpen(true)}
+                    className="text-amber-400 hover:text-amber-300 underline font-semibold cursor-pointer"
+                  >
+                    Sayımı Güncelle
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs text-gray-400">Devredilecek Net Kasa Nakti:</span>
+                  <strong className="text-sm font-black text-amber-400">
+                    {formatCurrency(remainingCashToTransfer)}
+                  </strong>
+                </div>
+                <p className="text-[11px] text-gray-300">
+                  Günün kapanışında artan nakit mevcudunu küpürlerine (200₺, 100₺, 50₺...) ayırarak ana kasaya devredin.
+                </p>
+                <button
+                  onClick={() => setIsBanknoteModalOpen(true)}
+                  className="w-full py-2.5 px-3 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-lg shadow-md transition flex items-center justify-center space-x-2 cursor-pointer"
+                >
+                  <Coins className="w-4 h-4" />
+                  <span>Kalan Nakti Banknot Sayımıyla Aktar</span>
+                </button>
+              </div>
+            )}
+          </div>
+
         </div>
 
       </div>
+
+      {/* Banknote Count & Transfer Modal */}
+      {isBanknoteModalOpen && (
+        <BanknoteCountModal
+          isOpen={true}
+          onClose={() => setIsBanknoteModalOpen(false)}
+          mode="closing_transfer"
+          currentSafe={masterSafe}
+          targetAmount={remainingCashToTransfer}
+          initialDate={currentEntry.date}
+          initialDescription={`${formatDateTR(currentEntry.date)} Gün Sonu Kalan Kasa Nakti`}
+          initialCategory="Gün Sonu Kasa Devri"
+          onConfirm={handleBanknoteTransferConfirm}
+        />
+      )}
+
+      {/* Sequential Cashier Workflow Navigation Footer */}
+      {onNavigate && (
+        <CashierStepFooter
+          currentTab="closing"
+          onNavigate={onNavigate}
+        />
+      )}
     </div>
   );
 };

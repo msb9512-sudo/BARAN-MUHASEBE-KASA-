@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Settings,
   CreditCard,
@@ -16,10 +16,12 @@ import {
   ShieldAlert,
   Database,
   X,
+  Palette,
 } from 'lucide-react';
 import { PosDevice, ExpenseCategory } from '../types';
 import { RestaurantProfile } from '../utils/storage';
 import { formatDateTR, getTodayIsoDate } from '../utils/formatters';
+import { ThemeAppearanceSettings } from './ThemeAppearanceSettings';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -50,7 +52,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   onResetAllFinancialData,
   onResetSingleDay,
 }) => {
-  const [activeTab, setActiveTab] = useState<'profile' | 'pos' | 'categories' | 'system'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'pos' | 'categories' | 'appearance' | 'system'>('profile');
   const [profileForm, setProfileForm] = useState<RestaurantProfile>({
     ...profile,
     companyTitle: profile.companyTitle || profile.name || '',
@@ -76,6 +78,36 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     impacts: string[];
     confirmButtonText: string;
   } | null>(null);
+
+  // Close on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && isOpen) {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // Synchronize state with props when modal opens or props change
+  useEffect(() => {
+    if (isOpen) {
+      setDevicesList(posDevices);
+      setCategoriesList(categories);
+      setProfileForm({
+        ...profile,
+        companyTitle: profile.companyTitle || profile.name || '',
+        taxOffice: profile.taxOffice || '',
+        taxNumber: profile.taxNumber || '',
+        tradeRegistryNo: profile.tradeRegistryNo || '',
+        mersisNo: profile.mersisNo || '',
+        address: profile.address || '',
+        stampText: profile.stampText || '',
+      });
+      setTargetDayToReset(selectedDate || getTodayIsoDate());
+    }
+  }, [isOpen, posDevices, categories, profile, selectedDate]);
 
   if (!isOpen) return null;
 
@@ -171,8 +203,14 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-sans">
-      <div className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-3xl p-6 shadow-2xl space-y-5 my-6 max-h-[90vh] overflow-y-auto">
+    <div
+      onClick={onClose}
+      className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 overflow-y-auto font-sans cursor-pointer"
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-3xl p-6 shadow-2xl space-y-5 my-6 max-h-[90vh] overflow-y-auto cursor-default"
+      >
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[#30363d] pb-3">
           <div className="flex items-center space-x-2.5">
@@ -232,6 +270,18 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           >
             <Tag className="w-3.5 h-3.5" />
             <span>Gider Kategorileri ({categoriesList.length})</span>
+          </button>
+
+          <button
+            onClick={() => setActiveTab('appearance')}
+            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
+              activeTab === 'appearance'
+                ? 'bg-orange-600 text-white shadow-sm'
+                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+            }`}
+          >
+            <Palette className="w-3.5 h-3.5" />
+            <span>Tema & Font</span>
           </button>
 
           <button
@@ -674,6 +724,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                 </button>
               </div>
             </div>
+          </div>
+        )}
+
+        {/* Tab 5: Görünüm & Tema */}
+        {activeTab === 'appearance' && (
+          <div className="pt-2">
+            <ThemeAppearanceSettings />
           </div>
         )}
       </div>

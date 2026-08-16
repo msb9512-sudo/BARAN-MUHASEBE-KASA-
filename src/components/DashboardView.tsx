@@ -20,17 +20,31 @@ import {
   Sparkles,
   ChevronRight,
   Upload,
+  UserCheck,
 } from 'lucide-react';
-import { DailyEntry, CashExpense, Invoice } from '../types';
+import {
+  DailyEntry,
+  CashExpense,
+  Invoice,
+  OpenAccountCustomer,
+  OpenAccountTransaction,
+  TabType,
+  MasterSafeState,
+} from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR } from '../utils/formatters';
 import { calculateDailyRegister, auditDailyEntry } from '../utils/calculations';
+import { calculateBanknoteTotal, calculateTotalBanknoteCount } from '../utils/storage';
+import { OpenAccountCarilerTable } from './OpenAccountCarilerTable';
 
 interface DashboardViewProps {
   selectedDate: string;
   currentEntry: DailyEntry;
   expenses: CashExpense[];
   invoices: Invoice[];
-  onNavigate: (tab: any) => void;
+  customers?: OpenAccountCustomer[];
+  transactions?: OpenAccountTransaction[];
+  masterSafe?: MasterSafeState;
+  onNavigate: (tab: TabType) => void;
   onOpenBossReport: () => void;
   onOpenVegaImport: () => void;
 }
@@ -40,6 +54,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   currentEntry,
   expenses,
   invoices,
+  customers = [],
+  transactions = [],
+  masterSafe,
   onNavigate,
   onOpenBossReport,
   onOpenVegaImport,
@@ -48,6 +65,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const warnings = auditDailyEntry(currentEntry, expenses, invoices);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
   const isClosed = currentEntry.status === 'closed';
+
+  const vaultTotal = masterSafe ? calculateBanknoteTotal(masterSafe.banknotes) : 0;
+  const vaultBanknoteCount = masterSafe ? calculateTotalBanknoteCount(masterSafe.banknotes) : 0;
 
   const dayExpenses = expenses.filter((e) => e.isActive && e.date === selectedDate);
   const dayInvoices = invoices.filter((i) => i.isActive && i.date === selectedDate);
@@ -161,8 +181,8 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 4 Key Metric Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      {/* 5 Key Metric Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Total Sales / Vega */}
         <div
           onClick={() => onNavigate('daily')}
@@ -220,9 +240,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {formatCurrency(reg.posTotal)}
           </p>
           <div className="flex items-center justify-between text-[11px] font-mono mt-2 pt-2 border-t border-[#30363d]">
-            <span className="text-gray-400">{currentEntry.posReports.length} Terminal Z Raporu</span>
+            <span className="text-gray-400">{currentEntry.posReports.length} Terminal Z</span>
             <span className={reg.isPosReconciled ? 'text-emerald-400' : 'text-rose-400'}>
-              {reg.isPosReconciled ? '✓ POS Uyumlu' : '⚠ POS Farkı Var'}
+              {reg.isPosReconciled ? '✓ Uyumlu' : '⚠ Fark Var'}
             </span>
           </div>
         </div>
@@ -233,7 +253,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] hover:border-orange-500/40 transition cursor-pointer group"
         >
           <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase font-mono">
-            <span>Kasa Gider Toplamı</span>
+            <span>Kasa Giderleri</span>
             <div className="p-1.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 group-hover:scale-105 transition">
               <Receipt className="w-4 h-4" />
             </div>
@@ -242,8 +262,28 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {formatCurrency(reg.cashExpenses)}
           </p>
           <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-2 pt-2 border-t border-[#30363d]">
-            <span>{dayExpenses.length} Kayıtlı Harcama</span>
-            <span>Kasadan Fatura: {formatCurrency(reg.invoiceCashPayments)}</span>
+            <span>{dayExpenses.length} Harcama</span>
+            <span>Fatura: {formatCurrency(reg.invoiceCashPayments)}</span>
+          </div>
+        </div>
+
+        {/* Master Safe Vault Metric */}
+        <div
+          onClick={() => onNavigate('vault')}
+          className="bg-gradient-to-br from-[#161b22] to-[#1c1810] p-4 rounded-xl border border-amber-500/40 hover:border-amber-400 transition cursor-pointer group shadow-lg"
+        >
+          <div className="flex items-center justify-between text-amber-400 text-xs font-semibold uppercase font-mono">
+            <span>Ana Kasa (Banknot)</span>
+            <div className="p-1.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 group-hover:scale-105 transition">
+              <Wallet className="w-4 h-4" />
+            </div>
+          </div>
+          <p className="text-2xl font-mono font-bold text-amber-300 mt-2">
+            {formatCurrency(vaultTotal)}
+          </p>
+          <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-2 pt-2 border-t border-[#30363d]">
+            <span>{vaultBanknoteCount} Banknot</span>
+            <span className="text-amber-400 group-hover:underline">Detay & Harcama →</span>
           </div>
         </div>
       </div>
@@ -345,7 +385,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="text-xl sm:text-2xl font-mono font-bold text-white">
                   {formatCurrency(reg.expectedCash)}
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono">
+                <div className="text-xs text-gray-400 font-mono font-medium">
                   Devir + Nakit - Kasa Gideri - Fatura
                 </div>
               </div>
@@ -355,7 +395,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                 <div className="text-xl sm:text-2xl font-mono font-bold text-orange-400">
                   {formatCurrency(reg.actualCashInHand)}
                 </div>
-                <div className="text-[10px] text-gray-500 font-mono">
+                <div className="text-xs text-gray-400 font-mono font-medium">
                   Kasada fiziki sayılan tutar
                 </div>
               </div>
@@ -363,12 +403,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               <div
                 className={`p-3.5 rounded-lg border flex flex-col items-center justify-center text-center ${
                   reg.isCashBalanced
-                    ? 'bg-emerald-950/20 border-emerald-500/30'
-                    : 'bg-rose-950/20 border-rose-500/30'
+                    ? 'bg-emerald-500/10 border-emerald-500/30'
+                    : 'bg-rose-500/10 border-rose-500/30'
                 }`}
               >
                 <div
-                  className={`text-[11px] font-bold font-mono uppercase ${
+                  className={`text-xs font-bold font-mono uppercase ${
                     reg.isCashBalanced ? 'text-emerald-400' : 'text-rose-400'
                   }`}
                 >
@@ -485,6 +525,16 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Open Account Cariler Section with 10-item pagination */}
+      <OpenAccountCarilerTable
+        customers={customers}
+        transactions={transactions}
+        onNavigate={onNavigate}
+        title="Açık Hesaplar & Cari Takip Listesi"
+        subtitle="Veresiye masalar, müşteri carileri ve açık hesap bakiye icmali"
+        badgeLabel="ANA PANEL CARİ İCMALİ"
+      />
 
       {/* Audit Warnings Box (If any error/warning exists) */}
       {warnings.length > 0 && (

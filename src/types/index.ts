@@ -1,4 +1,79 @@
+export type TabType =
+  | 'dashboard'
+  | 'daily'
+  | 'groups'
+  | 'expenses'
+  | 'invoices'
+  | 'openAccounts'
+  | 'closing'
+  | 'vault'
+  | 'monthly'
+  | 'workspace'
+  | 'settings';
+
+export type BanknoteDenomination = 200 | 100 | 50 | 20 | 10 | 5 | 1;
+
+export type BanknoteCounts = {
+  200: number;
+  100: number;
+  50: number;
+  20: number;
+  10: number;
+  5: number;
+  1: number;
+  [key: number]: number;
+};
+
+export interface SafeTransaction {
+  id: string;
+  date: string; // YYYY-MM-DD
+  type: 'deposit' | 'withdrawal'; // 'deposit' (Giriş / Kasa Devri) | 'withdrawal' (Çıkış / Harcama / Masraf)
+  source: 'daily_closing' | 'manual_deposit' | 'manual_expense' | 'supplier_payment' | 'boss_withdrawal' | 'other';
+  sourceDailyEntryDate?: string;
+  amount: number;
+  banknotes: BanknoteCounts;
+  category?: string; // Manav, Toptancı, Personel Avans, Gün Sonu Kasa Devri, Şahsi Çekim vb.
+  description: string;
+  enteredBy?: string;
+  receiptNo?: string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface MasterSafeState {
+  banknotes: BanknoteCounts;
+  transactions: SafeTransaction[];
+  lastUpdated?: string;
+}
+
 export type PaymentStatus = 'unpaid' | 'partial' | 'paid' | 'overdue';
+
+export interface OpenAccountCustomer {
+  id: string;
+  name: string; // Müşteri / Kişi / Firma Adı
+  phone?: string;
+  company?: string;
+  notes?: string;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface OpenAccountTransaction {
+  id: string;
+  customerId: string;
+  customerName: string;
+  date: string; // YYYY-MM-DD
+  type: 'debt' | 'payment'; // 'debt' (Borç / Veresiye Satış) | 'payment' (Tahsilat / Ödeme)
+  amount: number;
+  description: string;
+  paymentMethod?: 'Nakit' | 'Kredi Kartı / POS' | 'Banka Transferi / EFT' | 'Diğer';
+  sourceDailyEntryDate?: string;
+  receiptNo?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 
 export interface PosZReportItem {
   id: string;
@@ -11,6 +86,13 @@ export interface PosZReportItem {
   refundTotal?: number;
   slipCount?: number;
   notes?: string;
+  rawExpression?: string; // Optional math expression string (e.g. "1250,50 + 450,25")
+  subZReports?: Array<{
+    id: string;
+    zNumber?: string;
+    amount: number;
+    slipCount?: number;
+  }>;
 }
 
 export interface SoldProductItem {
@@ -74,6 +156,14 @@ export interface DailyEntry {
   vegaGroups: VegaGroupItem[];
   posReports: PosZReportItem[];
   cashWithdrawals: CashWithdrawalItem[];
+  vaultTransfer?: {
+    transferred: boolean;
+    amount: number;
+    banknotes: BanknoteCounts;
+    transferredAt?: string;
+    transferredBy?: string;
+    transactionId?: string;
+  };
   createdAt?: string;
   updatedAt: string;
 }
@@ -231,4 +321,38 @@ export interface MonthlySummary {
   remainingInvoiceDebt?: number;
   estimatedProfit?: number;
   dailyRows?: MonthlyDailyRow[];
+}
+
+export type ThemeId =
+  | 'dark-obsidian'
+  | 'midnight-black'
+  | 'deep-navy'
+  | 'warm-bistro'
+  | 'emerald-nordic'
+  | 'clean-light';
+
+export type FontFamilyId =
+  | 'inter'
+  | 'jakarta'
+  | 'jetbrains'
+  | 'outfit'
+  | 'geist'
+  | 'playfair'
+  | 'firacode';
+
+export type FontSizeId = 'compact' | 'normal' | 'relaxed' | 'large';
+
+export type AccentColorId =
+  | 'orange'
+  | 'emerald'
+  | 'blue'
+  | 'amber'
+  | 'rose'
+  | 'indigo';
+
+export interface AppThemeSettings {
+  themeId: ThemeId;
+  fontFamilyId: FontFamilyId;
+  fontSizeId: FontSizeId;
+  accentColorId: AccentColorId;
 }

@@ -26,9 +26,12 @@ import {
   Tag,
 } from 'lucide-react';
 import { DailyEntry, CashExpense, Invoice, PosDevice, PosZReportItem, CashWithdrawalItem } from '../types';
-import { formatCurrency, parseNumberInput, formatDateTR } from '../utils/formatters';
+import { formatCurrency, parseNumberInput, formatDateTR, evaluateMathExpression } from '../utils/formatters';
 import { calculateDailyRegister, getPosTotal } from '../utils/calculations';
 import { extractTextFromPdf, parseReportText } from '../utils/pdfParser';
+import { SmartMoneyInput } from './SmartMoneyInput';
+import { CashierStepFooter } from './CashierStepFooter';
+import { TabType } from '../types';
 
 interface DailyCashAndVegaViewProps {
   selectedDate?: string;
@@ -42,7 +45,8 @@ interface DailyCashAndVegaViewProps {
   onOpenQuickImport?: () => void;
   onOpenNewExpense?: () => void;
   onOpenNewInvoice?: () => void;
-  onNavigate?: (tab: string) => void;
+  onNavigate?: (tab: TabType) => void;
+  onPromptOpenAccount?: (amount: number, date: string) => void;
 }
 
 export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
@@ -58,6 +62,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
   onOpenNewExpense,
   onOpenNewInvoice,
   onNavigate,
+  onPromptOpenAccount,
 }) => {
   const [saveSuccess, setSaveSuccess] = useState(false);
   const [isProcessingPdf, setIsProcessingPdf] = useState(false);
@@ -176,6 +181,12 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
             autoRemainingCash
           )} olarak hesaplandı.`
         );
+
+        if (Number(parsed.openAccountTotal) > 0 && onPromptOpenAccount) {
+          setTimeout(() => {
+            onPromptOpenAccount(Number(parsed.openAccountTotal), currentEntry.date);
+          }, 300);
+        }
       } else {
         // Trigger modal for excel/other
         handleImportClick();
@@ -229,13 +240,38 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const effectiveCC = posTotal > 0 ? posTotal : (field === 'creditCardSales' ? num : (Number(currentVega.creditCardSales) || 0));
     const other = field === 'otherSales' ? num : (Number(currentVega.otherSales) || 0);
 
-    const updatedVega = {
+    const updatedVega: typeof currentVega = {
       ...currentVega,
       [field]: num,
     };
 
-    // Auto calculate cash sales or total sales when fields change
-    if (field === 'totalSales') {
+    if (field === 'discountTotal' || field === 'discountAmount') {
+      updatedVega.discountTotal = num;
+      updatedVega.discountAmount = num;
+      const gross = Number(updatedVega.grossProductSales) || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0 ? currentEntry.vegaGroups.reduce((s, g) => s + (Number(g.amount) || 0), 0) : 0);
+      const openAcc = Number(updatedVega.openAccountTotal) || 0;
+      if (gross > 0) {
+        const autoNet = Math.max(0, gross - num - openAcc);
+        updatedVega.totalSales = autoNet;
+        updatedVega.cashSales = Math.max(0, autoNet - effectiveCC - other);
+      }
+    } else if (field === 'openAccountTotal') {
+      updatedVega.openAccountTotal = num;
+      const gross = Number(updatedVega.grossProductSales) || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0 ? currentEntry.vegaGroups.reduce((s, g) => s + (Number(g.amount) || 0), 0) : 0);
+      const disc = Number(updatedVega.discountTotal) || Number(updatedVega.discountAmount) || 0;
+      if (gross > 0) {
+        const autoNet = Math.max(0, gross - disc - num);
+        updatedVega.totalSales = autoNet;
+        updatedVega.cashSales = Math.max(0, autoNet - effectiveCC - other);
+      }
+    } else if (field === 'grossProductSales') {
+      updatedVega.grossProductSales = num;
+      const disc = Number(updatedVega.discountTotal) || Number(updatedVega.discountAmount) || 0;
+      const openAcc = Number(updatedVega.openAccountTotal) || 0;
+      const autoNet = Math.max(0, num - disc - openAcc);
+      updatedVega.totalSales = autoNet;
+      updatedVega.cashSales = Math.max(0, autoNet - effectiveCC - other);
+    } else if (field === 'totalSales') {
       // Toplam Net Satış değiştiğinde Kredi Kartı / POS düşülüp Nakit Satış otomatik hesaplanır
       updatedVega.cashSales = Math.max(0, num - effectiveCC - other);
     } else if (field === 'creditCardSales') {
@@ -267,15 +303,25 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
   };
 
   // POS Z report list updater
-  const handlePosChange = (index: number, field: keyof PosZReportItem, val: any) => {
+  const handlePosChange = (index: number, field: keyof PosZReportItem, val: any, rawExpr?: string) => {
     const updatedPos = [...currentEntry.posReports];
-    updatedPos[index] = {
-      ...updatedPos[index],
-      [field]: field === 'creditCardTotal' || field === 'refundTotal' || field === 'slipCount' ? parseNumberInput(val) : val,
-    };
+    const item = { ...updatedPos[index] };
+
+    if (field === 'creditCardTotal') {
+      item.creditCardTotal = typeof val === 'number' ? val : parseNumberInput(val);
+      item.rawExpression = rawExpr;
+    } else if (field === 'refundTotal') {
+      item.refundTotal = typeof val === 'number' ? val : parseNumberInput(val);
+    } else if (field === 'slipCount') {
+      item.slipCount = typeof val === 'number' ? val : parseNumberInput(val);
+    } else {
+      (item as any)[field] = val;
+    }
+
+    updatedPos[index] = item;
 
     // Calculate total of all POS credit cards
-    const newPosTotal = updatedPos.reduce((sum, item) => sum + (Number(item.creditCardTotal) || 0), 0);
+    const newPosTotal = updatedPos.reduce((sum, p) => sum + (Number(p.creditCardTotal) || 0), 0);
     const totalSales = Number(currentEntry.vegaReport.totalSales) || 0;
     const otherSales = Number(currentEntry.vegaReport.otherSales) || 0;
     
@@ -512,38 +558,38 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
       {/* 2. PROMINENT AUTOMATIC CASH CALCULATION & STATUS BANNER */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-3 font-mono">
         <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-[11px] text-gray-400 uppercase font-semibold block">1. Toplam Ciro (PDF / Vega)</span>
+          <span className="text-xs text-gray-400 uppercase font-semibold block">1. Toplam Ciro (PDF / Vega)</span>
           <div className="text-xl font-bold text-white mt-1">
             {formatCurrency(reg.totalSales)}
           </div>
-          <span className="text-[10px] text-gray-500 block mt-0.5">Grup raporu toplam hasılatı</span>
+          <span className="text-xs text-gray-400 block mt-0.5 font-medium">Grup raporu toplam hasılatı</span>
         </div>
 
         <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-[11px] text-gray-400 uppercase font-semibold block">2. Kredi Kartı / POS Z Toplamı</span>
+          <span className="text-xs text-gray-400 uppercase font-semibold block">2. Kredi Kartı / POS Z Toplamı</span>
           <div className="text-xl font-bold text-sky-400 mt-1">
             {formatCurrency(reg.posTotal > 0 ? reg.posTotal : reg.creditCardSales)}
           </div>
-          <span className="text-[10px] text-sky-400/80 block mt-0.5">Terminallerden çekilen tutar</span>
+          <span className="text-xs text-sky-400 block mt-0.5 font-medium">Terminallerden çekilen tutar</span>
         </div>
 
         <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-[11px] text-gray-400 uppercase font-semibold block">3. Çıkan Kasa Gider & Fatura</span>
+          <span className="text-xs text-gray-400 uppercase font-semibold block">3. Çıkan Kasa Gider & Fatura</span>
           <div className="text-xl font-bold text-rose-400 mt-1">
             -{formatCurrency(reg.totalCashOutflow)}
           </div>
-          <span className="text-[10px] text-gray-500 block mt-0.5">Giderler + Fatura nakit çıkışları</span>
+          <span className="text-xs text-rose-400/90 block mt-0.5 font-medium">Giderler + Fatura nakit çıkışları</span>
         </div>
 
-        <div className="p-4 bg-orange-950/25 border-2 border-orange-500/50 rounded-xl shadow-lg relative overflow-hidden">
+        <div className="p-4 bg-orange-500/10 border-2 border-orange-500/60 rounded-xl shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between">
-            <span className="text-[11px] text-orange-400 uppercase font-bold tracking-wider">
+            <span className="text-xs text-orange-400 uppercase font-bold tracking-wider">
               OTOMATİK KALAN NET NAKİT
             </span>
             <button
               onClick={handleSyncToActualCash}
               title="Kalan nakiti fiili kasa sayımı ile eşitle"
-              className="text-[10px] bg-orange-600/80 hover:bg-orange-600 text-white font-bold px-2 py-0.5 rounded transition cursor-pointer"
+              className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-0.5 rounded transition cursor-pointer shadow-sm"
             >
               Eşitle ✓
             </button>
@@ -551,7 +597,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
           <div className="text-2xl font-bold text-orange-400 mt-1">
             {formatCurrency(reg.expectedCash)}
           </div>
-          <span className="text-[10px] text-gray-300 block mt-0.5">
+          <span className="text-xs text-gray-300 block mt-0.5 font-medium">
             Devir + Nakit - (Giderler + Fatura)
           </span>
         </div>
@@ -589,25 +635,32 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </button>
             </div>
 
-            {/* Top breakdown formula: Brüt - İskonto = Net Ciro */}
-            {(currentEntry.vegaReport.grossProductSales || currentEntry.vegaReport.discountAmount || currentEntry.vegaReport.discountTotal) ? (
-              <div className="p-3 bg-[#0d1117] rounded-lg border border-[#30363d] grid grid-cols-1 sm:grid-cols-3 gap-2 font-mono text-xs">
+            {/* Top breakdown formula: Brüt - İskonto - Açık Hesap = Net Ciro */}
+            {(currentEntry.vegaReport.grossProductSales || currentEntry.vegaReport.discountAmount || currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.openAccountTotal || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0)) ? (
+              <div className="p-3 bg-[#0d1117] rounded-lg border border-[#30363d] grid grid-cols-1 sm:grid-cols-4 gap-2 font-mono text-xs shadow-inner">
                 <div className="flex justify-between sm:block">
-                  <span className="text-gray-400 text-[10px] uppercase block">Brüt Ürün Satışı:</span>
+                  <span className="text-gray-400 text-xs uppercase block font-semibold">1. Brüt Ürün Satışı:</span>
                   <span className="font-bold text-white text-sm">
-                    {formatCurrency(currentEntry.vegaReport.grossProductSales || currentEntry.vegaReport.totalSales)}
+                    {formatCurrency(currentEntry.vegaReport.grossProductSales || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0 ? currentEntry.vegaGroups.reduce((s, g) => s + (Number(g.amount) || 0), 0) : currentEntry.vegaReport.totalSales))}
                   </span>
                 </div>
 
                 <div className="flex justify-between sm:block">
-                  <span className="text-rose-400 text-[10px] uppercase font-bold block">(-) Düşülen İskonto:</span>
+                  <span className="text-rose-400 text-xs uppercase font-bold block">2. (-) Toplam İskonto:</span>
                   <span className="font-bold text-rose-400 text-sm">
                     -{formatCurrency(currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount || 0)}
                   </span>
                 </div>
 
                 <div className="flex justify-between sm:block">
-                  <span className="text-emerald-400 text-[10px] uppercase font-bold block">(=) Net Genel Kasa:</span>
+                  <span className="text-amber-400 text-xs uppercase font-bold block">3. (-) Açık Hesap (Cari):</span>
+                  <span className="font-bold text-amber-400 text-sm">
+                    -{formatCurrency(currentEntry.vegaReport.openAccountTotal || 0)}
+                  </span>
+                </div>
+
+                <div className="flex justify-between sm:block">
+                  <span className="text-emerald-400 text-xs uppercase font-bold block">4. (=) Net Genel Kasa:</span>
                   <span className="font-bold text-emerald-400 text-sm">
                     {formatCurrency(currentEntry.vegaReport.totalSales)}
                   </span>
@@ -615,41 +668,31 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
               {/* Toplam Satış Ciro */}
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
                   Toplam Net Satış (Ciro) *
                 </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={currentEntry.vegaReport.totalSales || ''}
-                    onChange={(e) => handleVegaChange('totalSales', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm font-mono font-bold text-white focus:border-orange-500 focus:outline-none"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-gray-500 font-bold font-mono">₺</span>
-                </div>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.totalSales}
+                  onChange={(val) => handleVegaChange('totalSales', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-white focus:border-orange-500"
+                />
               </div>
 
               {/* Credit Card Sales */}
               <div>
                 <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
-                  Kredi Kartı Satış *
+                  Kredi Kartı Satış (POS) *
                 </label>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={currentEntry.vegaReport.creditCardSales || ''}
-                    onChange={(e) => handleVegaChange('creditCardSales', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm font-mono font-bold text-sky-400 focus:border-sky-500 focus:outline-none"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-sky-400 font-bold font-mono">₺</span>
-                </div>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.creditCardSales}
+                  onChange={(val) => handleVegaChange('creditCardSales', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-sky-400 focus:border-sky-500"
+                />
               </div>
 
               {/* Cash Sales (Auto inferred or manual) */}
@@ -660,17 +703,74 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   </label>
                   <span className="text-[10px] text-emerald-400 font-mono">Otomatik</span>
                 </div>
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={currentEntry.vegaReport.cashSales || ''}
-                    onChange={(e) => handleVegaChange('cashSales', e.target.value)}
-                    placeholder="0.00"
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-sm font-mono font-bold text-emerald-400 focus:border-emerald-500 focus:outline-none"
-                  />
-                  <span className="absolute right-3 top-2 text-xs text-emerald-400 font-bold font-mono">₺</span>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.cashSales}
+                  onChange={(val) => handleVegaChange('cashSales', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-emerald-400 focus:border-emerald-500"
+                />
+              </div>
+
+              {/* Toplam İskonto */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-rose-400 font-mono">
+                    (-) Toplam İskonto (İndirim)
+                  </label>
+                  <span className="text-[10px] text-rose-400 font-mono">Rapordan Düşülür</span>
                 </div>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount}
+                  onChange={(val) => handleVegaChange('discountTotal', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-rose-400 border-rose-500/40 focus:border-rose-500"
+                />
+              </div>
+
+              {/* Açık Hesap (Cari / Veresiye) */}
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-xs font-semibold text-amber-400 font-mono">
+                    (-) Açık Hesap / Cari (Veresiye)
+                  </label>
+                  <div className="flex items-center space-x-1.5 font-mono text-[10px]">
+                    {Number(currentEntry.vegaReport.openAccountTotal) > 0 && onPromptOpenAccount && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          onPromptOpenAccount(
+                            Number(currentEntry.vegaReport.openAccountTotal),
+                            currentEntry.date
+                          )
+                        }
+                        className="text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
+                        title="Bu açık hesabı bir müşteriye borç olarak ata"
+                      >
+                        Müşteriye Ata ➜
+                      </button>
+                    )}
+                    <span className="text-amber-400/80">Ödenmemiş</span>
+                  </div>
+                </div>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.openAccountTotal}
+                  onChange={(val) => handleVegaChange('openAccountTotal', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-amber-400 border-amber-500/40 focus:border-amber-500"
+                />
+              </div>
+
+              {/* Brüt Ürün Satışı */}
+              <div>
+                <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
+                  Brüt Ürün Satışı (Liste Fiyatı)
+                </label>
+                <SmartMoneyInput
+                  value={currentEntry.vegaReport.grossProductSales}
+                  onChange={(val) => handleVegaChange('grossProductSales', val)}
+                  placeholder="0,00"
+                  className="px-3 py-2 text-sm font-bold text-gray-200 focus:border-orange-500"
+                />
               </div>
             </div>
 
@@ -886,7 +986,8 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   );
                   const discountVal =
                     currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount || 0;
-                  const netVal = currentEntry.vegaReport.totalSales || Math.max(0, allGroupsTotalAmount - discountVal);
+                  const openAccountVal = currentEntry.vegaReport.openAccountTotal || 0;
+                  const netVal = currentEntry.vegaReport.totalSales || Math.max(0, allGroupsTotalAmount - discountVal - openAccountVal);
 
                   return (
                     <div className="mt-3 p-3.5 bg-[#161b22] rounded-lg border border-orange-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs font-mono shadow-md">
@@ -910,14 +1011,21 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                         </div>
 
                         {discountVal > 0 && (
-                          <div className="flex items-center space-x-1.5 bg-rose-950/30 px-2.5 py-1 rounded border border-rose-500/30">
-                            <span className="text-rose-400 text-[11px]">İskonto:</span>
+                          <div className="flex items-center space-x-1.5 bg-rose-500/10 px-2.5 py-1 rounded border border-rose-500/30">
+                            <span className="text-rose-400 text-xs font-semibold">İskonto:</span>
                             <span className="text-rose-400 font-bold">-{formatCurrency(discountVal)}</span>
                           </div>
                         )}
 
-                        <div className="flex items-center space-x-1.5 bg-emerald-950/30 px-2.5 py-1 rounded border border-emerald-500/40">
-                          <span className="text-emerald-400 text-[11px]">Net Genel Kasa:</span>
+                        {openAccountVal > 0 && (
+                          <div className="flex items-center space-x-1.5 bg-amber-500/10 px-2.5 py-1 rounded border border-amber-500/30">
+                            <span className="text-amber-400 text-xs font-semibold">Açık Hesap:</span>
+                            <span className="text-amber-400 font-bold">-{formatCurrency(openAccountVal)}</span>
+                          </div>
+                        )}
+
+                        <div className="flex items-center space-x-1.5 bg-emerald-500/10 px-2.5 py-1 rounded border border-emerald-500/40">
+                          <span className="text-emerald-400 text-xs font-semibold">Net Genel Kasa:</span>
                           <span className="text-emerald-400 font-bold text-sm">{formatCurrency(netVal)}</span>
                         </div>
                       </div>
@@ -930,14 +1038,17 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
 
           {/* Section B: POS Cihazları Z Raporları */}
           <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg">
-            <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 mb-4">
+            <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 mb-3">
               <div className="flex items-center space-x-3">
                 <span className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400 font-mono font-bold text-xs flex items-center justify-center">
                   2
                 </span>
                 <div>
-                  <h3 className="font-bold text-white text-sm font-mono">
-                    POS Cihazları Z Raporları
+                  <h3 className="font-bold text-white text-sm font-mono flex items-center space-x-2">
+                    <span>POS Cihazları Z Raporları</span>
+                    <span className="text-[10px] bg-sky-500/20 text-sky-300 font-semibold px-2 py-0.5 rounded border border-sky-500/30">
+                      Çoklu Z & (+) Toplama Destekli
+                    </span>
                   </h3>
                   <span className="text-xs text-gray-400 font-mono">
                     Tüm banka terminallerinin gün sonu Z raporu tutarları
@@ -954,64 +1065,86 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </button>
             </div>
 
+            {/* Helpful Quick Tip for Multi-Z and Comma support */}
+            <div className="mb-4 p-2.5 bg-sky-500/10 rounded-lg border border-sky-500/30 flex items-start space-x-2 text-xs font-mono text-sky-300">
+              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div>
+                <span>
+                  <strong>Çift Z Raporu / Toplama:</strong> Gün içinde aynı cihazdan 2 veya daha fazla Z raporu çıktıysa, tutara araya <strong>+</strong> koyarak yazabilirsiniz (Örn: <strong>1.450,50 + 720,25</strong>). Virgüllü küsuratlar otomatik toplanır.
+                </span>
+              </div>
+            </div>
+
             <div className="space-y-3">
-              {currentEntry.posReports.map((pos, index) => (
-                <div
-                  key={pos.id || index}
-                  className="bg-[#0d1117] p-3.5 rounded-lg border border-[#30363d] flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono"
-                >
-                  <div className="flex-1">
-                    <input
-                      type="text"
-                      value={pos.posDeviceName}
-                      onChange={(e) => handlePosChange(index, 'posDeviceName', e.target.value)}
-                      className="font-bold text-xs text-gray-200 bg-transparent border-b border-transparent hover:border-[#30363d] focus:border-sky-500 focus:outline-none w-full"
-                    />
-                    <div className="flex items-center space-x-2 mt-1.5">
-                      <span className="text-[11px] text-gray-500">Z No:</span>
-                      <input
-                        type="text"
-                        value={pos.zNumber || ''}
-                        onChange={(e) => handlePosChange(index, 'zNumber', e.target.value)}
-                        placeholder="0084"
-                        className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-20 font-mono focus:border-sky-500 focus:outline-none"
-                      />
-                      <span className="text-[11px] text-gray-500">Fiş Adet:</span>
-                      <input
-                        type="number"
-                        value={pos.slipCount || ''}
-                        onChange={(e) => handlePosChange(index, 'slipCount', e.target.value)}
-                        placeholder="0"
-                        className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-16 font-mono focus:border-sky-500 focus:outline-none"
-                      />
+              {currentEntry.posReports.map((pos, index) => {
+                const isMultiZ = (pos.rawExpression && pos.rawExpression.includes('+')) || false;
+
+                return (
+                  <div
+                    key={pos.id || index}
+                    className={`bg-[#0d1117] p-3.5 rounded-lg border transition ${
+                      isMultiZ ? 'border-sky-500/50 bg-sky-500/10' : 'border-[#30363d]'
+                    } flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono`}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={pos.posDeviceName}
+                          onChange={(e) => handlePosChange(index, 'posDeviceName', e.target.value)}
+                          className="font-bold text-xs text-gray-200 bg-transparent border-b border-transparent hover:border-[#30363d] focus:border-sky-500 focus:outline-none w-full"
+                        />
+                        {isMultiZ && (
+                          <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-1.5 py-0.5 rounded shrink-0">
+                            Çift Z
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 mt-1.5">
+                        <span className="text-[11px] text-gray-500">Z No:</span>
+                        <input
+                          type="text"
+                          value={pos.zNumber || ''}
+                          onChange={(e) => handlePosChange(index, 'zNumber', e.target.value)}
+                          placeholder="0084 veya 14+15"
+                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-28 font-mono focus:border-sky-500 focus:outline-none"
+                        />
+                        <span className="text-[11px] text-gray-500">Fiş Adet:</span>
+                        <input
+                          type="text"
+                          value={pos.slipCount || ''}
+                          onChange={(e) => handlePosChange(index, 'slipCount', e.target.value)}
+                          placeholder="0"
+                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-16 font-mono focus:border-sky-500 focus:outline-none text-right"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <div className="w-44">
+                        <SmartMoneyInput
+                          value={pos.creditCardTotal}
+                          rawExpression={pos.rawExpression}
+                          onChange={(val, rawExpr) => handlePosChange(index, 'creditCardTotal', val, rawExpr)}
+                          placeholder="0,00"
+                          className="px-3 py-1.5 text-xs font-bold text-sky-400 focus:border-sky-500"
+                          showLiveSum={true}
+                        />
+                      </div>
+
+                      {currentEntry.posReports.length > 1 && (
+                        <button
+                          onClick={() => handleRemovePos(index)}
+                          className="p-1.5 text-gray-500 hover:text-rose-400 rounded transition cursor-pointer"
+                          title="POS Kaydını Kaldır"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
                     </div>
                   </div>
-
-                  <div className="flex items-center space-x-2">
-                    <div className="relative w-36">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={pos.creditCardTotal || ''}
-                        onChange={(e) => handlePosChange(index, 'creditCardTotal', e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-sky-400 text-right pr-6 focus:border-sky-500 focus:outline-none"
-                      />
-                      <span className="absolute right-2 top-2 text-xs text-sky-400 font-bold font-mono">₺</span>
-                    </div>
-
-                    {currentEntry.posReports.length > 1 && (
-                      <button
-                        onClick={() => handleRemovePos(index)}
-                        className="p-1.5 text-gray-500 hover:text-rose-400 rounded transition cursor-pointer"
-                        title="POS Kaydını Kaldır"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
 
             {/* POS Total Summary Bar */}
@@ -1055,22 +1188,19 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   </span>
                   <p className="text-[10px] text-gray-500">Güne başlanan nakit</p>
                 </div>
-                <div className="relative w-28">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={currentEntry.openingCash || ''}
-                    onChange={(e) =>
+                <div className="w-32">
+                  <SmartMoneyInput
+                    value={currentEntry.openingCash}
+                    onChange={(val) =>
                       onUpdateEntry({
                         ...currentEntry,
-                        openingCash: parseNumberInput(e.target.value),
+                        openingCash: val,
                         updatedAt: new Date().toISOString(),
                       })
                     }
-                    placeholder="0.00"
-                    className="w-full bg-[#161b22] border border-[#30363d] rounded px-2.5 py-1 text-xs font-mono font-bold text-right pr-5 text-white focus:border-orange-500 focus:outline-none"
+                    placeholder="0,00"
+                    className="px-2.5 py-1 text-xs font-bold text-white focus:border-orange-500"
                   />
-                  <span className="absolute right-2 top-1.5 text-gray-500 font-bold">₺</span>
                 </div>
               </div>
 
@@ -1160,16 +1290,13 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                       placeholder="Bankaya Yatırılan"
                       className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 flex-1 focus:border-orange-500 focus:outline-none"
                     />
-                    <div className="relative w-24">
-                      <input
-                        type="number"
-                        step="0.01"
-                        value={w.amount || ''}
-                        onChange={(e) => handleUpdateWithdrawal(idx, 'amount', e.target.value)}
-                        placeholder="0.00"
-                        className="w-full bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs font-bold text-right pr-4 text-white focus:border-orange-500 focus:outline-none"
+                    <div className="w-28">
+                      <SmartMoneyInput
+                        value={w.amount}
+                        onChange={(val) => handleUpdateWithdrawal(idx, 'amount', val)}
+                        placeholder="0,00"
+                        className="px-2 py-0.5 text-xs font-bold text-white focus:border-orange-500"
                       />
-                      <span className="absolute right-1 top-0.5 text-[10px] text-gray-500">₺</span>
                     </div>
                     <button
                       onClick={() => handleRemoveWithdrawal(idx)}
@@ -1186,12 +1313,12 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </div>
 
               {/* 6. Expected Cash (OTOMATİK KALAN NAKİT) */}
-              <div className="bg-orange-950/30 text-white p-3.5 rounded-xl border border-orange-500/40 flex items-center justify-between">
+              <div className="bg-orange-500/10 text-white p-3.5 rounded-xl border-2 border-orange-500/60 flex items-center justify-between shadow-sm">
                 <div>
                   <span className="text-xs text-orange-400 font-bold uppercase tracking-wide">
                     (=) BEKLENEN / KALAN NAKİT KASA:
                   </span>
-                  <p className="text-[10px] text-gray-400">Giderler düşüldükten sonra kalan tutar</p>
+                  <p className="text-xs text-gray-300 font-medium">Giderler düşüldükten sonra kalan tutar</p>
                 </div>
                 <span className="text-xl font-bold text-orange-400">
                   {formatCurrency(reg.expectedCash)}
@@ -1199,7 +1326,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </div>
 
               {/* 7. Actual Counted Cash & Quick Sync Button */}
-              <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] space-y-2">
+              <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] space-y-2 shadow-sm">
                 <div className="flex items-center justify-between">
                   <label className="block text-xs font-bold text-white font-mono uppercase">
                     (Fiili) Sayılan Kasa Tutarı *
@@ -1207,37 +1334,32 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   <button
                     type="button"
                     onClick={handleSyncToActualCash}
-                    className="text-[11px] font-mono text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
+                    className="text-xs font-mono text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
                   >
                     Kalan Nakiti Yaz ({formatCurrency(reg.expectedCash)})
                   </button>
                 </div>
 
-                <div className="relative">
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={currentEntry.actualCashInHand || ''}
-                    onChange={(e) =>
-                      onUpdateEntry({
-                        ...currentEntry,
-                        actualCashInHand: parseNumberInput(e.target.value),
-                        updatedAt: new Date().toISOString(),
-                      })
-                    }
-                    placeholder="Fiziki sayılan kasa..."
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3.5 py-2.5 text-base font-mono font-bold text-white text-right pr-8 focus:border-orange-500 focus:outline-none"
-                  />
-                  <span className="absolute right-3 top-3 text-sm text-orange-500 font-bold font-mono">₺</span>
-                </div>
+                <SmartMoneyInput
+                  value={currentEntry.actualCashInHand}
+                  onChange={(val) =>
+                    onUpdateEntry({
+                      ...currentEntry,
+                      actualCashInHand: val,
+                      updatedAt: new Date().toISOString(),
+                    })
+                  }
+                  placeholder="Fiziki sayılan kasa..."
+                  className="px-3.5 py-2 text-base font-bold text-white focus:border-orange-500"
+                />
               </div>
 
               {/* 8. Kasa Denkliği Durumu */}
               <div
                 className={`p-3.5 rounded-xl border text-center transition ${
                   reg.isCashBalanced
-                    ? 'bg-emerald-950/20 border-emerald-500/40 text-emerald-400'
-                    : 'bg-rose-950/20 border-rose-500/40 text-rose-400'
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold'
+                    : 'bg-rose-500/10 border-rose-500/40 text-rose-400 font-bold'
                 }`}
               >
                 <div className="text-xs font-bold uppercase tracking-wider">
@@ -1252,6 +1374,14 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Sequential Cashier Workflow Navigation Footer */}
+      {onNavigate && (
+        <CashierStepFooter
+          currentTab="daily"
+          onNavigate={onNavigate}
+        />
+      )}
     </div>
   );
 };

@@ -13,8 +13,16 @@ import {
   CheckCircle2,
   AlertTriangle,
   Layers,
+  UserCheck,
 } from 'lucide-react';
-import { DailyEntry, CashExpense, Invoice } from '../types';
+import {
+  DailyEntry,
+  CashExpense,
+  Invoice,
+  OpenAccountCustomer,
+  OpenAccountTransaction,
+  TabType,
+} from '../types';
 import {
   formatCurrency,
   formatPercent,
@@ -24,19 +32,26 @@ import {
 } from '../utils/formatters';
 import { calculateMonthlySummary, calculateDailyRegister } from '../utils/calculations';
 import { exportMonthlyReportToExcel } from '../utils/excelExport';
+import { OpenAccountCarilerTable } from './OpenAccountCarilerTable';
 
 interface MonthlyReportViewProps {
   entries: Record<string, DailyEntry>;
   expenses: CashExpense[];
   invoices: Invoice[];
+  customers?: OpenAccountCustomer[];
+  transactions?: OpenAccountTransaction[];
   onSelectDate: (date: string) => void;
+  onNavigate?: (tab: TabType) => void;
 }
 
 export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
   entries,
   expenses,
   invoices,
+  customers = [],
+  transactions = [],
   onSelectDate,
+  onNavigate,
 }) => {
   const [selectedMonth, setSelectedMonth] = useState('2026-08');
 
@@ -147,7 +162,7 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
           <div className="text-2xl font-bold text-amber-400 mt-2">
             {formatCurrency(summary.totalCashExpenses)}
           </div>
-          <div className="text-xs text-gray-500 mt-2">
+          <div className="text-xs text-gray-400 mt-2 font-medium">
             İşletme günlük harcamaları ({currentMonthExpenses.length} kalem)
           </div>
         </div>
@@ -181,7 +196,7 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
           <div className="text-2xl font-bold text-purple-400 mt-2">
             {formatCurrency(summary.estimatedProfit)}
           </div>
-          <div className="text-xs text-gray-500 mt-2">
+          <div className="text-xs text-gray-400 mt-2 font-medium">
             Toplam Ciro - (Giderler + Fatura Girişleri)
           </div>
         </div>
@@ -358,6 +373,16 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
           </table>
         </div>
       </div>
+
+      {/* Monthly Open Accounts / Cariler Summary Table with 10-per-page Pagination */}
+      <OpenAccountCarilerTable
+        customers={customers}
+        transactions={transactions}
+        onNavigate={onNavigate}
+        title="Aylık Açık Hesap & Cari Alacaklar İcmali"
+        subtitle="Veresiye müşteri bakiyeleri, yapılan tahsilatlar ve toplam açık hesap alacak durumu"
+        badgeLabel="AYLIK CARİ İCMAL RAPORU"
+      />
     </div>
   );
 };

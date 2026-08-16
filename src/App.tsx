@@ -8,44 +8,106 @@ import {
   AppState,
   RestaurantProfile,
 } from './utils/storage';
-import { DailyEntry, CashExpense, Invoice, PosDevice, ExpenseCategory } from './types';
+import {
+  DailyEntry,
+  CashExpense,
+  Invoice,
+  PosDevice,
+  ExpenseCategory,
+  TabType,
+  OpenAccountCustomer,
+  OpenAccountTransaction,
+  MasterSafeState,
+  BanknoteCounts,
+  SafeTransaction,
+} from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { DailyCashAndVegaView } from './components/DailyCashAndVegaView';
 import { VegaGroupReportView } from './components/VegaGroupReportView';
 import { CashExpensesView } from './components/CashExpensesView';
 import { InvoicesView } from './components/InvoicesView';
+import { OpenAccountsView } from './components/OpenAccountsView';
 import { DailyClosingView } from './components/DailyClosingView';
+import { MasterSafeVaultView } from './components/MasterSafeVaultView';
 import { MonthlyReportView } from './components/MonthlyReportView';
 import { BossReportModal } from './components/BossReportModal';
 import { VegaImportModal } from './components/VegaImportModal';
+import { OpenAccountPromptModal } from './components/OpenAccountPromptModal';
 import { SettingsModal } from './components/SettingsModal';
 import { SettingsView } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
+import { Sidebar } from './components/Sidebar';
 import { getTodayIsoDate } from './utils/formatters';
+import { loadThemeSettings, applyThemeToDOM } from './utils/theme';
 
 export function App() {
   // Main State loaded from localStorage
   const [appState, setAppState] = useState<AppState>(() => loadAppState());
   
+  // Initialize and apply theme settings immediately on mount
+  useEffect(() => {
+    const settings = loadThemeSettings();
+    applyThemeToDOM(settings);
+  }, []);
+  
   // Navigation & UI state
-  const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'daily' | 'groups' | 'expenses' | 'invoices' | 'closing' | 'monthly' | 'workspace' | 'settings'
-  >('dashboard');
+  const [activeTab, setActiveTab] = useState<TabType>('dashboard');
   
   const [selectedDate, setSelectedDate] = useState<string>(
     () => appState.currentSelectedDate || getTodayIsoDate()
   );
+
+  // Mobile & Desktop sidebar collapsed state
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(() => {
+    try {
+      const saved = localStorage.getItem('sidebar_collapsed');
+      return saved === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const handleToggleSidebarCollapse = () => {
+    setIsSidebarCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem('sidebar_collapsed', String(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+  };
 
   // Modals state
   const [isBossReportOpen, setIsBossReportOpen] = useState(false);
   const [isVegaImportOpen, setIsVegaImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
+  // Open Account prompt modal state
+  const [isOpenAccountPromptOpen, setIsOpenAccountPromptOpen] = useState(false);
+  const [detectedOpenAccountAmount, setDetectedOpenAccountAmount] = useState<number>(0);
+  const [detectedOpenAccountDate, setDetectedOpenAccountDate] = useState<string>('');
+
+  const handlePromptOpenAccount = (amount: number, date: string) => {
+    setDetectedOpenAccountAmount(amount);
+    setDetectedOpenAccountDate(date || selectedDate);
+    setIsOpenAccountPromptOpen(true);
+  };
+
   // Persist state to localStorage on update
   useEffect(() => {
     saveAppState(appState);
   }, [appState]);
+
+  // Automatically scroll to the top of the page smoothly whenever the active tab / step changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    document.documentElement.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+    document.body.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
+  }, [activeTab]);
 
   // Ensure current entry exists for selected date
   const getCurrentEntry = (date: string): DailyEntry => {
@@ -191,6 +253,99 @@ export function App() {
     });
   };
 
+  // Open Account Customers & Transactions Handlers
+  const handleAddOpenAccountCustomer = (customer: OpenAccountCustomer) => {
+    setAppState((prev) => ({
+      ...prev,
+      openAccountCustomers: [customer, ...(prev.openAccountCustomers || [])],
+    }));
+  };
+
+  const handleUpdateOpenAccountCustomer = (updated: OpenAccountCustomer) => {
+    setAppState((prev) => ({
+      ...prev,
+      openAccountCustomers: (prev.openAccountCustomers || []).map((c) =>
+        c.id === updated.id ? updated : c
+      ),
+    }));
+  };
+
+  const handleDeleteOpenAccountCustomer = (customerId: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      openAccountCustomers: (prev.openAccountCustomers || []).filter((c) => c.id !== customerId),
+      openAccountTransactions: (prev.openAccountTransactions || []).filter(
+        (t) => t.customerId !== customerId
+      ),
+    }));
+  };
+
+  const handleAddOpenAccountTransaction = (tx: OpenAccountTransaction) => {
+    setAppState((prev) => ({
+      ...prev,
+      openAccountTransactions: [tx, ...(prev.openAccountTransactions || [])],
+    }));
+  };
+
+  const handleDeleteOpenAccountTransaction = (txId: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      openAccountTransactions: (prev.openAccountTransactions || []).filter((t) => t.id !== txId),
+    }));
+  };
+
+  // Master Safe (Vault) Handlers
+  const handleUpdateMasterSafe = (updated: MasterSafeState) => {
+    setAppState((prev) => ({
+      ...prev,
+      masterSafe: updated,
+    }));
+  };
+
+  const handleTransferToMasterSafe = (transferData: {
+    date: string;
+    amount: number;
+    banknotes: BanknoteCounts;
+    enteredBy: string;
+    description: string;
+  }) => {
+    setAppState((prev) => {
+      const currentSafe = prev.masterSafe || {
+        banknotes: { 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 1: 0 },
+        transactions: [],
+        lastUpdated: new Date().toISOString(),
+      };
+
+      const newBanknotes = { ...currentSafe.banknotes };
+      for (const d of [200, 100, 50, 20, 10, 5, 1]) {
+        const delta = Number(transferData.banknotes[d]) || 0;
+        newBanknotes[d] = (Number(newBanknotes[d]) || 0) + delta;
+      }
+
+      const newTx: SafeTransaction = {
+        id: `safe-transfer-${transferData.date}-${Date.now()}`,
+        date: transferData.date,
+        type: 'deposit',
+        source: 'daily_closing',
+        amount: transferData.amount,
+        banknotes: transferData.banknotes,
+        category: 'Gün Sonu Kasa Devri',
+        description: transferData.description,
+        enteredBy: transferData.enteredBy,
+        createdAt: new Date().toISOString(),
+      };
+
+      return {
+        ...prev,
+        masterSafe: {
+          banknotes: newBanknotes,
+          transactions: [newTx, ...(currentSafe.transactions || [])],
+          lastUpdated: new Date().toISOString(),
+        },
+      };
+    });
+  };
+
   // Settings & Profile Handlers
   const handleUpdatePosDevices = (devices: PosDevice[]) => {
     setAppState((prev) => ({ ...prev, posDevices: devices }));
@@ -234,115 +389,172 @@ export function App() {
         onOpenVegaImport={() => setIsVegaImportOpen(true)}
         onOpenSettings={() => setIsSettingsOpen(true)}
         profile={appState.profile}
+        onToggleMobileSidebar={() => setIsMobileSidebarOpen((prev) => !prev)}
+        isSidebarCollapsed={isSidebarCollapsed}
+        onToggleSidebarCollapse={handleToggleSidebarCollapse}
       />
 
-      {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        {activeTab === 'dashboard' && (
-          <DashboardView
-            selectedDate={selectedDate}
-            currentEntry={currentEntry}
-            expenses={appState.expenses}
-            invoices={appState.invoices}
-            onNavigate={(tab) => setActiveTab(tab)}
-            onOpenBossReport={() => setIsBossReportOpen(true)}
-            onOpenVegaImport={() => setIsVegaImportOpen(true)}
-          />
-        )}
+      {/* Main Layout Body: Left Sidebar + Central Content */}
+      <div className="flex-1 flex w-full">
+        {/* Left Vertical Navigation Groups */}
+        <Sidebar
+          activeTab={activeTab}
+          setActiveTab={setActiveTab}
+          onOpenBossReport={() => setIsBossReportOpen(true)}
+          onOpenVegaImport={() => setIsVegaImportOpen(true)}
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          profile={appState.profile}
+          isOpenMobile={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapse}
+        />
 
-        {activeTab === 'daily' && (
-          <DailyCashAndVegaView
-            selectedDate={selectedDate}
-            currentEntry={currentEntry}
-            onUpdateEntry={handleUpdateEntry}
-            expenses={appState.expenses}
-            invoices={appState.invoices}
-            posDevices={appState.posDevices}
-            onOpenVegaImport={() => setIsVegaImportOpen(true)}
-            onOpenBossReport={() => setIsBossReportOpen(true)}
-            onNavigate={(tab) => setActiveTab(tab)}
-          />
-        )}
+        {/* Main Workspace Area */}
+        <main className="flex-1 min-w-0 p-3 sm:p-5 lg:p-7 max-w-7xl mx-auto w-full">
+          {activeTab === 'dashboard' && (
+            <DashboardView
+              selectedDate={selectedDate}
+              currentEntry={currentEntry}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              customers={appState.openAccountCustomers || []}
+              transactions={appState.openAccountTransactions || []}
+              masterSafe={appState.masterSafe}
+              onNavigate={(tab) => setActiveTab(tab)}
+              onOpenBossReport={() => setIsBossReportOpen(true)}
+              onOpenVegaImport={() => setIsVegaImportOpen(true)}
+            />
+          )}
 
-        {activeTab === 'groups' && (
-          <VegaGroupReportView
-            currentEntry={currentEntry}
-            onUpdateEntry={handleUpdateEntry}
-            onOpenVegaImport={() => setIsVegaImportOpen(true)}
-          />
-        )}
+          {activeTab === 'daily' && (
+            <DailyCashAndVegaView
+              selectedDate={selectedDate}
+              currentEntry={currentEntry}
+              onUpdateEntry={handleUpdateEntry}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              posDevices={appState.posDevices}
+              onOpenVegaImport={() => setIsVegaImportOpen(true)}
+              onOpenBossReport={() => setIsBossReportOpen(true)}
+              onNavigate={(tab) => setActiveTab(tab)}
+              onPromptOpenAccount={handlePromptOpenAccount}
+            />
+          )}
 
-        {activeTab === 'expenses' && (
-          <CashExpensesView
-            selectedDate={selectedDate}
-            expenses={appState.expenses}
-            categories={appState.categories}
-            onAddExpense={handleAddExpense}
-            onUpdateExpense={handleUpdateExpense}
-            onDeleteExpense={handleDeleteExpense}
-          />
-        )}
+          {activeTab === 'groups' && (
+            <VegaGroupReportView
+              currentEntry={currentEntry}
+              onUpdateEntry={handleUpdateEntry}
+              onOpenVegaImport={() => setIsVegaImportOpen(true)}
+              onNavigate={(tab) => setActiveTab(tab)}
+              onPromptOpenAccount={handlePromptOpenAccount}
+            />
+          )}
 
-        {activeTab === 'invoices' && (
-          <InvoicesView
-            selectedDate={selectedDate}
-            invoices={appState.invoices}
-            onAddInvoice={handleAddInvoice}
-            onUpdateInvoice={handleUpdateInvoice}
-            onDeleteInvoice={handleDeleteInvoice}
-            onAddPayment={handleAddPayment}
-          />
-        )}
+          {activeTab === 'expenses' && (
+            <CashExpensesView
+              selectedDate={selectedDate}
+              expenses={appState.expenses}
+              categories={appState.categories}
+              onAddExpense={handleAddExpense}
+              onUpdateExpense={handleUpdateExpense}
+              onDeleteExpense={handleDeleteExpense}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
 
-        {activeTab === 'closing' && (
-          <DailyClosingView
-            currentEntry={currentEntry}
-            onUpdateEntry={handleUpdateEntry}
-            expenses={appState.expenses}
-            invoices={appState.invoices}
-            onOpenBossReport={() => setIsBossReportOpen(true)}
-          />
-        )}
+          {activeTab === 'openAccounts' && (
+            <OpenAccountsView
+              customers={appState.openAccountCustomers || []}
+              transactions={appState.openAccountTransactions || []}
+              onAddCustomer={handleAddOpenAccountCustomer}
+              onUpdateCustomer={handleUpdateOpenAccountCustomer}
+              onDeleteCustomer={handleDeleteOpenAccountCustomer}
+              onAddTransaction={handleAddOpenAccountTransaction}
+              onDeleteTransaction={handleDeleteOpenAccountTransaction}
+              selectedDate={selectedDate}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
 
-        {activeTab === 'monthly' && (
-          <MonthlyReportView
-            entries={appState.entries}
-            expenses={appState.expenses}
-            invoices={appState.invoices}
-            onSelectDate={(date) => {
-              setSelectedDate(date);
-              setActiveTab('daily');
-            }}
-          />
-        )}
+          {activeTab === 'invoices' && (
+            <InvoicesView
+              selectedDate={selectedDate}
+              invoices={appState.invoices}
+              onAddInvoice={handleAddInvoice}
+              onUpdateInvoice={handleUpdateInvoice}
+              onDeleteInvoice={handleDeleteInvoice}
+              onAddPayment={handleAddPayment}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
 
-        {activeTab === 'workspace' && (
-          <GoogleWorkspaceView
-            currentEntry={currentEntry}
-            appState={appState}
-            onRestoreState={(restoredState) => setAppState(restoredState)}
-            onOpenVegaImport={() => setIsVegaImportOpen(true)}
-          />
-        )}
+          {activeTab === 'closing' && (
+            <DailyClosingView
+              currentEntry={currentEntry}
+              onUpdateEntry={handleUpdateEntry}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              masterSafe={appState.masterSafe}
+              onTransferToMasterSafe={handleTransferToMasterSafe}
+              onOpenBossReport={() => setIsBossReportOpen(true)}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
 
-        {activeTab === 'settings' && (
-          <SettingsView
-            posDevices={appState.posDevices}
-            onUpdatePosDevices={handleUpdatePosDevices}
-            categories={appState.categories}
-            onUpdateCategories={handleUpdateCategories}
-            profile={appState.profile}
-            onUpdateProfile={handleUpdateProfile}
-            onResetData={handleResetData}
-            entries={appState.entries}
-            expenses={appState.expenses}
-            invoices={appState.invoices}
-            selectedDate={selectedDate}
-            onResetAllFinancialData={handleResetAllFinancialData}
-            onResetSingleDay={handleResetSingleDay}
-          />
-        )}
-      </main>
+          {activeTab === 'vault' && (
+            <MasterSafeVaultView
+              masterSafe={appState.masterSafe}
+              onUpdateMasterSafe={handleUpdateMasterSafe}
+              selectedDate={selectedDate}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'monthly' && (
+            <MonthlyReportView
+              entries={appState.entries}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              customers={appState.openAccountCustomers || []}
+              transactions={appState.openAccountTransactions || []}
+              onSelectDate={(date) => {
+                 setSelectedDate(date);
+                 setActiveTab('daily');
+              }}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'workspace' && (
+            <GoogleWorkspaceView
+              currentEntry={currentEntry}
+              appState={appState}
+              onRestoreState={(restoredState) => setAppState(restoredState)}
+              onOpenVegaImport={() => setIsVegaImportOpen(true)}
+            />
+          )}
+
+          {activeTab === 'settings' && (
+            <SettingsView
+              posDevices={appState.posDevices}
+              onUpdatePosDevices={handleUpdatePosDevices}
+              categories={appState.categories}
+              onUpdateCategories={handleUpdateCategories}
+              profile={appState.profile}
+              onUpdateProfile={handleUpdateProfile}
+              onResetData={handleResetData}
+              entries={appState.entries}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              selectedDate={selectedDate}
+              onResetAllFinancialData={handleResetAllFinancialData}
+              onResetSingleDay={handleResetSingleDay}
+            />
+          )}
+        </main>
+      </div>
 
       {/* Footer info */}
       <footer className="border-t border-[#30363d] bg-[#0d1117] py-3.5 px-4 text-center text-xs text-gray-400 font-mono">
@@ -380,6 +592,21 @@ export function App() {
         onApplyImport={handleUpdateEntry}
         expenses={appState.expenses}
         invoices={appState.invoices}
+        onOpenAccountDetected={handlePromptOpenAccount}
+      />
+
+      {/* Open Account Prompt Modal */}
+      <OpenAccountPromptModal
+        isOpen={isOpenAccountPromptOpen}
+        onClose={() => setIsOpenAccountPromptOpen(false)}
+        detectedAmount={detectedOpenAccountAmount}
+        date={detectedOpenAccountDate || selectedDate}
+        customers={appState.openAccountCustomers || []}
+        onSaveCustomer={handleAddOpenAccountCustomer}
+        onSaveTransaction={handleAddOpenAccountTransaction}
+        onNavigateToOpenAccounts={() => {
+          setActiveTab('openAccounts');
+        }}
       />
 
       {/* Settings Modal */}
