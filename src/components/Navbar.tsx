@@ -1,6 +1,5 @@
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import {
-  Calendar,
   ChevronLeft,
   ChevronRight,
   Menu,
@@ -9,14 +8,11 @@ import {
   ChevronRight as ChevronRightIcon,
   PanelLeftClose,
   PanelLeftOpen,
-  Sun,
-  Moon,
 } from 'lucide-react';
 import { formatDateWithDayTR, addDays } from '../utils/formatters';
-import { TabType, AppThemeSettings } from '../types';
+import { TabType } from '../types';
 import { RestaurantProfile } from '../utils/storage';
 import { NAVIGATION_GROUPS, getGroupForTab } from '../components/Sidebar';
-import { loadThemeSettings, saveThemeSettings } from '../utils/theme';
 
 interface NavbarProps {
   activeTab: TabType;
@@ -45,25 +41,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   isSidebarCollapsed,
   onToggleSidebarCollapse,
 }) => {
-  const [currentThemeSettings, setCurrentThemeSettings] = useState<AppThemeSettings>(() => loadThemeSettings());
-
-  useEffect(() => {
-    const handleStorage = () => {
-      setCurrentThemeSettings(loadThemeSettings());
-    };
-    window.addEventListener('storage', handleStorage);
-    return () => window.removeEventListener('storage', handleStorage);
-  }, []);
-
-  const toggleLightDarkMode = () => {
-    const nextTheme = currentThemeSettings.themeId === 'clean-light' ? 'dark-obsidian' : 'clean-light';
-    const updated = { ...currentThemeSettings, themeId: nextTheme };
-    setCurrentThemeSettings(updated);
-    saveThemeSettings(updated);
-  };
-
-  const isLight = currentThemeSettings.themeId === 'clean-light';
-
   const activeGroupId = getGroupForTab(activeTab);
   const activeGroup =
     NAVIGATION_GROUPS.find((g) => g.id === activeGroupId) ||
@@ -150,23 +127,6 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-gray-400 font-mono flex items-center gap-1.5 mt-0.5 truncate">
-                {profile?.branch && <span>{profile.branch}</span>}
-                {profile?.taxNumber && (
-                  <>
-                    <span className="w-1 h-1 rounded-full bg-gray-600 inline-block"></span>
-                    <span className="text-gray-400">VKN: {profile.taxNumber}</span>
-                  </>
-                )}
-                {!profile?.companyTitle && (
-                  <button
-                    onClick={() => setActiveTab('settings')}
-                    className="text-orange-400 hover:text-orange-300 underline cursor-pointer ml-1 text-[10px]"
-                  >
-                    Kaşe Ekle
-                  </button>
-                )}
-              </p>
             </div>
           </div>
 
@@ -180,17 +140,18 @@ export const Navbar: React.FC<NavbarProps> = ({
               <ChevronLeft className="w-4 h-4" />
             </button>
 
-            <div className="flex items-center px-2 space-x-1.5">
-              <Calendar className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-              <input
-                type="date"
-                value={selectedDate}
-                onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
-                className="bg-transparent text-xs sm:text-sm font-semibold font-mono text-white focus:outline-none cursor-pointer"
-              />
-              <span className="text-xs text-gray-400 hidden sm:inline border-l border-[#30363d] pl-2 font-mono">
-                {formatDateWithDayTR(selectedDate)}
-              </span>
+            <div className="flex items-center px-2.5">
+              <label className="cursor-pointer flex items-center" title="Tarih seçmek için tıklayın">
+                <input
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => e.target.value && setSelectedDate(e.target.value)}
+                  className="sr-only"
+                />
+                <span className="text-xs sm:text-sm font-semibold font-mono text-white hover:text-orange-400 transition select-none">
+                  {formatDateWithDayTR(selectedDate)}
+                </span>
+              </label>
             </div>
 
             <button
@@ -211,27 +172,6 @@ export const Navbar: React.FC<NavbarProps> = ({
 
           {/* Quick Action Tools */}
           <div className="flex items-center space-x-2 shrink-0">
-            {/* Quick Theme Switcher Button (Aydınlık / Karanlık Mod) */}
-            <button
-              id="btn-quick-theme-toggle"
-              type="button"
-              onClick={toggleLightDarkMode}
-              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-gray-200 hover:text-white px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-mono font-medium shadow-xs transition cursor-pointer"
-              title={isLight ? 'Karanlık Moda Geç (Gece)' : 'Aydınlık Moda Geç (Gündüz Beyaz)'}
-            >
-              {isLight ? (
-                <>
-                  <Moon className="w-3.5 h-3.5 text-indigo-400" />
-                  <span className="hidden sm:inline">Karanlık Mod</span>
-                </>
-              ) : (
-                <>
-                  <Sun className="w-3.5 h-3.5 text-amber-400" />
-                  <span className="hidden sm:inline">Aydınlık Mod</span>
-                </>
-              )}
-            </button>
-
             <button
               onClick={onOpenBossReport}
               className="flex items-center space-x-1.5 bg-gradient-to-r from-orange-600 to-amber-600 hover:from-orange-500 hover:to-amber-500 text-white px-3 py-1.5 rounded-lg text-xs font-semibold shadow-md transition cursor-pointer"

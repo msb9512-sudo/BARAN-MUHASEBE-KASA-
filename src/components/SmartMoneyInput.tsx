@@ -110,14 +110,15 @@ export const SmartMoneyInput: React.FC<SmartMoneyInputProps> = ({
           placeholder={placeholder}
           disabled={disabled}
           autoFocus={autoFocus}
-          className={`w-full bg-[#0d1117] border rounded-lg font-mono text-right transition ${
+          style={{ paddingRight: currencySymbol ? '2.25rem' : undefined }}
+          className={`w-full bg-[#0d1117] border rounded-lg font-mono text-right pl-3 py-2 transition ${
             evalResult.isExpression
               ? 'border-sky-500/70 bg-sky-500/10 text-sky-300 font-bold'
               : 'border-[#30363d] focus:border-sky-500 text-gray-100'
           } ${className}`}
         />
         {currencySymbol && (
-          <span className="absolute right-2.5 text-xs text-gray-400 font-bold font-mono pointer-events-none">
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-gray-400 font-bold font-mono pointer-events-none select-none">
             {currencySymbol}
           </span>
         )}

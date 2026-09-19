@@ -446,16 +446,8 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
 
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => directPdfInputRef.current?.click()}
-              className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer font-mono"
-            >
-              <FileText className="w-4 h-4" />
-              <span>PDF Raporu Yükle</span>
-            </button>
-
-            <button
               onClick={handleImportClick}
-              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
+              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3.5 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
             >
               <Upload className="w-3.5 h-3.5 text-orange-400" />
               <span>Excel / Metin</span>
@@ -463,7 +455,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
 
             <button
               onClick={handleSave}
-              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-white text-xs font-semibold px-3.5 py-2 rounded-lg transition cursor-pointer font-mono"
+              className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer font-mono"
             >
               <Save className="w-3.5 h-3.5" />
               <span>{saveSuccess ? 'Kaydedildi ✓' : 'Kaydet'}</span>
@@ -511,13 +503,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                 <span className="text-xs font-bold text-white font-mono">
                   Vega / POS Grup Raporu PDF Dosyasını Buraya Sürükleyin
                 </span>
-                <span className="text-[10px] bg-orange-500/20 text-orange-400 font-bold px-2 py-0.5 rounded border border-orange-500/30">
-                  Otomatik Hesaplama
-                </span>
               </div>
-              <p className="text-[11px] text-gray-400 font-mono mt-0.5">
-                PDF dosyasını bırakın; sistem ürün gruplarını okur, Z raporu ve kasa giderlerini düşerek <strong className="text-orange-400 font-semibold">kalan net nakiti</strong> anında çıkartır.
-              </p>
             </div>
           </div>
 
@@ -623,117 +609,115 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                   </span>
                 </div>
               </div>
-
-              <button
-                type="button"
-                onClick={handleAutoComputeCashFromSales}
-                className="text-xs font-mono text-orange-400 hover:text-orange-300 flex items-center space-x-1 border border-orange-500/30 px-2.5 py-1 rounded bg-orange-500/10 cursor-pointer"
-                title="Cirodan kredi kartı ve diğer satışları düşerek nakit hasılatı otomatik hesaplar"
-              >
-                <Calculator className="w-3.5 h-3.5" />
-                <span>Nakit = Ciro - POS</span>
-              </button>
             </div>
 
             {/* Top breakdown formula: Brüt - İskonto - Açık Hesap = Net Ciro */}
             {(currentEntry.vegaReport.grossProductSales || currentEntry.vegaReport.discountAmount || currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.openAccountTotal || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0)) ? (
-              <div className="p-3 bg-[#0d1117] rounded-lg border border-[#30363d] grid grid-cols-1 sm:grid-cols-4 gap-2 font-mono text-xs shadow-inner">
-                <div className="flex justify-between sm:block">
-                  <span className="text-gray-400 text-xs uppercase block font-semibold">1. Brüt Ürün Satışı:</span>
-                  <span className="font-bold text-white text-sm">
+              <div className="p-3 bg-[#0d1117] rounded-lg border border-[#30363d] grid grid-cols-2 sm:grid-cols-4 gap-3 font-mono text-xs shadow-inner">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <span className="text-gray-400 text-xs uppercase font-semibold text-center">1. Brüt Ürün Satışı:</span>
+                  <span className="font-bold text-white text-sm text-center mt-0.5">
                     {formatCurrency(currentEntry.vegaReport.grossProductSales || (currentEntry.vegaGroups && currentEntry.vegaGroups.length > 0 ? currentEntry.vegaGroups.reduce((s, g) => s + (Number(g.amount) || 0), 0) : currentEntry.vegaReport.totalSales))}
                   </span>
                 </div>
 
-                <div className="flex justify-between sm:block">
-                  <span className="text-rose-400 text-xs uppercase font-bold block">2. (-) Toplam İskonto:</span>
-                  <span className="font-bold text-rose-400 text-sm">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <span className="text-rose-400 text-xs uppercase font-bold text-center">2. (-) Toplam İskonto:</span>
+                  <span className="font-bold text-rose-400 text-sm text-center mt-0.5">
                     -{formatCurrency(currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount || 0)}
                   </span>
                 </div>
 
-                <div className="flex justify-between sm:block">
-                  <span className="text-amber-400 text-xs uppercase font-bold block">3. (-) Açık Hesap (Cari):</span>
-                  <span className="font-bold text-amber-400 text-sm">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <span className="text-amber-400 text-xs uppercase font-bold text-center">3. (-) Açık Hesap (Cari):</span>
+                  <span className="font-bold text-amber-400 text-sm text-center mt-0.5">
                     -{formatCurrency(currentEntry.vegaReport.openAccountTotal || 0)}
                   </span>
                 </div>
 
-                <div className="flex justify-between sm:block">
-                  <span className="text-emerald-400 text-xs uppercase font-bold block">4. (=) Net Genel Kasa:</span>
-                  <span className="font-bold text-emerald-400 text-sm">
+                <div className="flex flex-col items-center justify-center text-center">
+                  <span className="text-emerald-400 text-xs uppercase font-bold text-center">4. (=) Net Genel Kasa:</span>
+                  <span className="font-bold text-emerald-400 text-sm text-center mt-0.5">
                     {formatCurrency(currentEntry.vegaReport.totalSales)}
                   </span>
                 </div>
               </div>
             ) : null}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 gap-4">
               {/* Toplam Satış Ciro */}
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
-                  Toplam Net Satış (Ciro) *
-                </label>
+                <div className="flex items-center justify-between mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-gray-300 font-mono truncate">
+                    Toplam Net Satış (Ciro) *
+                  </label>
+                </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.totalSales}
                   onChange={(val) => handleVegaChange('totalSales', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-white focus:border-orange-500"
+                  className="text-sm font-bold text-white focus:border-orange-500"
                 />
               </div>
 
               {/* Credit Card Sales */}
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
-                  Kredi Kartı Satış (POS) *
-                </label>
+                <div className="flex items-center justify-between mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-gray-300 font-mono truncate">
+                    Kredi Kartı Satış (POS) *
+                  </label>
+                </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.creditCardSales}
                   onChange={(val) => handleVegaChange('creditCardSales', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-sky-400 focus:border-sky-500"
+                  className="text-sm font-bold text-sky-400 focus:border-sky-500"
                 />
               </div>
 
               {/* Cash Sales (Auto inferred or manual) */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-gray-300 font-mono">
+                <div className="flex items-center justify-between mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-gray-300 font-mono truncate">
                     Nakit Satış Hasılatı
                   </label>
-                  <span className="text-[10px] text-emerald-400 font-mono">Otomatik</span>
+                  <span className="text-[10px] text-emerald-400 font-mono font-medium px-1.5 py-0.5 bg-emerald-500/10 rounded border border-emerald-500/20 shrink-0">
+                    Otomatik
+                  </span>
                 </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.cashSales}
                   onChange={(val) => handleVegaChange('cashSales', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-emerald-400 focus:border-emerald-500"
+                  className="text-sm font-bold text-emerald-400 focus:border-emerald-500"
                 />
               </div>
 
               {/* Toplam İskonto */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-rose-400 font-mono">
-                    (-) Toplam İskonto (İndirim)
+                <div className="flex items-center justify-between gap-1 mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-rose-400 font-mono truncate" title="Toplam İskonto (İndirim)">
+                    (-) Toplam İskonto
                   </label>
-                  <span className="text-[10px] text-rose-400 font-mono">Rapordan Düşülür</span>
+                  <span className="text-[10px] text-rose-400 font-mono font-medium px-1.5 py-0.5 bg-rose-500/10 rounded border border-rose-500/20 shrink-0">
+                    Düşülür
+                  </span>
                 </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.discountTotal || currentEntry.vegaReport.discountAmount}
                   onChange={(val) => handleVegaChange('discountTotal', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-rose-400 border-rose-500/40 focus:border-rose-500"
+                  className="text-sm font-bold text-rose-400 border-rose-500/40 focus:border-rose-500"
                 />
               </div>
 
               {/* Açık Hesap (Cari / Veresiye) */}
               <div>
-                <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold text-amber-400 font-mono">
-                    (-) Açık Hesap / Cari (Veresiye)
+                <div className="flex items-center justify-between gap-1 mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-amber-400 font-mono truncate" title="Açık Hesap / Cari (Veresiye)">
+                    (-) Açık Hesap (Cari)
                   </label>
-                  <div className="flex items-center space-x-1.5 font-mono text-[10px]">
+                  <div className="flex items-center space-x-1.5 font-mono text-[10px] shrink-0">
                     {Number(currentEntry.vegaReport.openAccountTotal) > 0 && onPromptOpenAccount && (
                       <button
                         type="button"
@@ -746,30 +730,37 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                         className="text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
                         title="Bu açık hesabı bir müşteriye borç olarak ata"
                       >
-                        Müşteriye Ata ➜
+                        Ata ➜
                       </button>
                     )}
-                    <span className="text-amber-400/80">Ödenmemiş</span>
+                    <span className="text-amber-400 font-medium px-1.5 py-0.5 bg-amber-500/10 rounded border border-amber-500/20">
+                      Veresiye
+                    </span>
                   </div>
                 </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.openAccountTotal}
                   onChange={(val) => handleVegaChange('openAccountTotal', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-amber-400 border-amber-500/40 focus:border-amber-500"
+                  className="text-sm font-bold text-amber-400 border-amber-500/40 focus:border-amber-500"
                 />
               </div>
 
               {/* Brüt Ürün Satışı */}
               <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1.5 font-mono">
-                  Brüt Ürün Satışı (Liste Fiyatı)
-                </label>
+                <div className="flex items-center justify-between mb-1.5 min-h-[22px]">
+                  <label className="block text-xs font-semibold text-gray-300 font-mono truncate" title="Brüt Ürün Satışı (Liste Fiyatı)">
+                    Brüt Ürün Satışı
+                  </label>
+                  <span className="text-[10px] text-gray-400 font-mono font-medium px-1.5 py-0.5 bg-gray-500/10 rounded border border-gray-500/20 shrink-0">
+                    Liste Fiyatı
+                  </span>
+                </div>
                 <SmartMoneyInput
                   value={currentEntry.vegaReport.grossProductSales}
                   onChange={(val) => handleVegaChange('grossProductSales', val)}
                   placeholder="0,00"
-                  className="px-3 py-2 text-sm font-bold text-gray-200 focus:border-orange-500"
+                  className="text-sm font-bold text-gray-200 focus:border-orange-500"
                 />
               </div>
             </div>

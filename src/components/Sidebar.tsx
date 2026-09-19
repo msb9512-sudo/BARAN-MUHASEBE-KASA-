@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Layers,
   FileSpreadsheet,
@@ -62,23 +62,6 @@ export const NAVIGATION_GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: 'cariler',
-    label: 'Cari Hesaplar',
-    shortLabel: 'Cariler',
-    icon: UserCheck,
-    description: 'Açık Hesap & Müşteri Alacak Takibi',
-    defaultTab: 'openAccounts',
-    subItems: [
-      {
-        id: 'openAccounts',
-        label: 'Açık Hesap & Cari Yönetimi',
-        shortLabel: 'Cari Yönetimi',
-        icon: UserCheck,
-        description: 'Veresiye masalar, müşteri carileri ve alacak takibi',
-      },
-    ],
-  },
-  {
     id: 'cashier',
     label: 'Kasa İşlemleri',
     shortLabel: 'Kasa',
@@ -127,6 +110,23 @@ export const NAVIGATION_GROUPS: NavGroup[] = [
         shortLabel: 'Ana Kasa',
         icon: Wallet,
         description: 'Kalan nakit aktarımı, banknot küpürleri ve harcama çıkışı',
+      },
+    ],
+  },
+  {
+    id: 'cariler',
+    label: 'Cari Hesaplar',
+    shortLabel: 'Cariler',
+    icon: UserCheck,
+    description: 'Açık Hesap & Müşteri Alacak Takibi',
+    defaultTab: 'openAccounts',
+    subItems: [
+      {
+        id: 'openAccounts',
+        label: 'Açık Hesap & Cari Yönetimi',
+        shortLabel: 'Cari Yönetimi',
+        icon: UserCheck,
+        description: 'Veresiye masalar, müşteri carileri ve alacak takibi',
       },
     ],
   },
@@ -188,11 +188,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const activeGroupId = getGroupForTab(activeTab);
 
+  // Track expanded/collapsed state for each menu group with submenus
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean>>(() => {
+    return { [activeGroupId]: true };
+  });
+
+  // Ensure active group is expanded when activeTab changes
+  useEffect(() => {
+    setExpandedGroups((prev) => ({
+      ...prev,
+      [activeGroupId]: true,
+    }));
+  }, [activeGroupId]);
+
   const handleGroupClick = (group: NavGroup) => {
-    if (!group.subItems.some((s) => s.id === activeTab)) {
-      setActiveTab(group.defaultTab);
+    const isGroupActive = activeGroupId === group.id;
+    const isCurrentlyExpanded =
+      expandedGroups[group.id] !== undefined
+        ? expandedGroups[group.id]
+        : isGroupActive;
+
+    if (group.subItems.length > 1) {
+      // Toggle expansion when clicking this menu group
+      setExpandedGroups((prev) => ({
+        ...prev,
+        [group.id]: !isCurrentlyExpanded,
+      }));
+
+      // If clicking from a different group, navigate to default tab
+      if (!group.subItems.some((s) => s.id === activeTab)) {
+        setActiveTab(group.defaultTab);
+        setExpandedGroups((prev) => ({
+          ...prev,
+          [group.id]: true,
+        }));
+      }
+    } else {
+      if (!group.subItems.some((s) => s.id === activeTab)) {
+        setActiveTab(group.defaultTab);
+      }
+      onCloseMobile();
     }
-    onCloseMobile();
   };
 
   const isSettingsActive = activeTab === 'settings';
@@ -249,6 +285,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
           const isGroupActive = activeGroupId === group.id;
           const GroupIcon = group.icon;
           const subCount = group.subItems.length;
+          const isExpanded =
+            expandedGroups[group.id] !== undefined
+              ? expandedGroups[group.id]
+              : isGroupActive;
 
           return (
             <div key={group.id} className="space-y-1">
@@ -296,16 +336,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     </span>
                   )}
                   <ChevronRight
-                    className={`w-4 h-4 transition ${
-                      isGroupActive ? 'text-orange-400 translate-x-0.5' : 'text-gray-500 group-hover:text-gray-300'
-                    }`}
+                    className={`w-4 h-4 transition-transform duration-200 ${
+                      isGroupActive ? 'text-orange-400' : 'text-gray-500 group-hover:text-gray-300'
+                    } ${subCount > 1 && isExpanded ? 'rotate-90 text-orange-400' : ''}`}
                   />
                 </div>
               </button>
 
-              {/* Sub-items preview under active group */}
-              {isGroupActive && group.subItems.length > 1 && (
-                <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-orange-500/30 ml-4.5 my-1">
+              {/* Sub-items preview under group (toggleable open/closed) */}
+              {group.subItems.length > 1 && isExpanded && (
+                <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-orange-500/30 ml-4.5 my-1 transition-all duration-200">
                   {group.subItems.map((sub) => {
                     const isSubActive = activeTab === sub.id;
                     const SubIcon = sub.icon;
