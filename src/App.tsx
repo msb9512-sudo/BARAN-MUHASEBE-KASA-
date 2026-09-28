@@ -20,12 +20,15 @@ import {
   MasterSafeState,
   BanknoteCounts,
   SafeTransaction,
+  FinancialAccount,
+  AccountTransaction,
 } from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
 import { DailyCashAndVegaView } from './components/DailyCashAndVegaView';
 import { VegaGroupReportView } from './components/VegaGroupReportView';
 import { CashExpensesView } from './components/CashExpensesView';
+import { AccountsView } from './components/AccountsView';
 import { InvoicesView } from './components/InvoicesView';
 import { OpenAccountsView } from './components/OpenAccountsView';
 import { DailyClosingView } from './components/DailyClosingView';
@@ -346,6 +349,52 @@ export function App() {
     });
   };
 
+  // Accounts & Account Transactions Handlers
+  const handleAddAccount = (accountData: Omit<FinancialAccount, 'id' | 'createdAt'>) => {
+    const newAccount: FinancialAccount = {
+      ...accountData,
+      id: `acc-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setAppState((prev) => ({
+      ...prev,
+      accounts: [...(prev.accounts || []), newAccount],
+    }));
+  };
+
+  const handleUpdateAccount = (updated: FinancialAccount) => {
+    setAppState((prev) => ({
+      ...prev,
+      accounts: (prev.accounts || []).map((a) => (a.id === updated.id ? updated : a)),
+    }));
+  };
+
+  const handleDeleteAccount = (id: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      accounts: (prev.accounts || []).filter((a) => a.id !== id),
+    }));
+  };
+
+  const handleAddAccountTransaction = (txData: Omit<AccountTransaction, 'id' | 'createdAt'>) => {
+    const newTx: AccountTransaction = {
+      ...txData,
+      id: `tx-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setAppState((prev) => ({
+      ...prev,
+      accountTransactions: [newTx, ...(prev.accountTransactions || [])],
+    }));
+  };
+
+  const handleDeleteAccountTransaction = (id: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      accountTransactions: (prev.accountTransactions || []).filter((tx) => tx.id !== id),
+    }));
+  };
+
   // Settings & Profile Handlers
   const handleUpdatePosDevices = (devices: PosDevice[]) => {
     setAppState((prev) => ({ ...prev, posDevices: devices }));
@@ -457,9 +506,26 @@ export function App() {
               selectedDate={selectedDate}
               expenses={appState.expenses}
               categories={appState.categories}
+              accounts={appState.accounts || []}
               onAddExpense={handleAddExpense}
               onUpdateExpense={handleUpdateExpense}
               onDeleteExpense={handleDeleteExpense}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'accounts' && (
+            <AccountsView
+              accounts={appState.accounts || []}
+              accountTransactions={appState.accountTransactions || []}
+              expenses={appState.expenses}
+              masterSafe={appState.masterSafe}
+              selectedDate={selectedDate}
+              onAddAccount={handleAddAccount}
+              onUpdateAccount={handleUpdateAccount}
+              onDeleteAccount={handleDeleteAccount}
+              onAddTransaction={handleAddAccountTransaction}
+              onDeleteTransaction={handleDeleteAccountTransaction}
               onNavigate={(tab) => setActiveTab(tab)}
             />
           )}
@@ -509,6 +575,15 @@ export function App() {
               onUpdateMasterSafe={handleUpdateMasterSafe}
               selectedDate={selectedDate}
               onNavigate={(tab) => setActiveTab(tab)}
+              currentEntry={currentEntry}
+              onUpdateEntry={handleUpdateEntry}
+              expenses={appState.expenses}
+              invoices={appState.invoices}
+              onTransferToMasterSafe={handleTransferToMasterSafe}
+              accounts={appState.accounts || []}
+              accountTransactions={appState.accountTransactions || []}
+              onUpdateAccount={handleUpdateAccount}
+              onAddTransaction={handleAddAccountTransaction}
             />
           )}
 

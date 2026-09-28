@@ -331,9 +331,6 @@ export const VegaGroupReportView: React.FC<VegaGroupReportViewProps> = ({
           <h2 className="text-xl font-bold text-white tracking-tight">
             {formatDateTR(currentEntry.date)} Satış & Ürün Grubu Dökümü
           </h2>
-          <p className="text-xs text-gray-400 font-mono mt-0.5">
-            Kategorilere göre satılan tüm ürünler, adetler, birim fiyatlar ve rapordan düşülen iskontolar
-          </p>
         </div>
 
         <div className="flex items-center space-x-2">

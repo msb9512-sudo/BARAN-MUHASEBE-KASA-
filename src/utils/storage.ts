@@ -9,6 +9,8 @@ import {
   MasterSafeState,
   SafeTransaction,
   BanknoteCounts,
+  FinancialAccount,
+  AccountTransaction,
 } from '../types';
 import { getTodayIsoDate } from './formatters';
 
@@ -22,6 +24,8 @@ const STORAGE_KEYS = {
   OPEN_ACCOUNT_CUSTOMERS: 'restoran_muhasebe_open_account_customers_v1',
   OPEN_ACCOUNT_TRANSACTIONS: 'restoran_muhasebe_open_account_txs_v1',
   MASTER_SAFE: 'restoran_muhasebe_master_safe_v1',
+  ACCOUNTS: 'restoran_muhasebe_accounts_v1',
+  ACCOUNT_TRANSACTIONS: 'restoran_muhasebe_account_txs_v1',
 };
 
 export interface RestaurantProfile {
@@ -385,6 +389,163 @@ export function saveOpenAccountTransactions(transactions: OpenAccountTransaction
   }
 }
 
+export const DEFAULT_ACCOUNTS: FinancialAccount[] = [
+  {
+    id: 'ana-kasa',
+    name: 'Ana Kasa (Nakit)',
+    type: 'cash',
+    isDefault: true,
+    initialBalance: 0,
+    color: '#f97316',
+    notes: 'İşletme ana nakit kasası',
+    createdAt: new Date().toISOString(),
+  },
+  {
+    id: 'ziraat-bankasi',
+    name: 'Ziraat Bankası',
+    type: 'bank',
+    bankName: 'Ziraat Bankası',
+    initialBalance: 0,
+    color: '#ef4444',
+    notes: 'Ana ticari banka mevduat hesabı',
+    createdAt: new Date().toISOString(),
+  },
+];
+
+export function loadAccounts(): FinancialAccount[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNTS);
+    if (!raw) {
+      saveAccounts(DEFAULT_ACCOUNTS);
+      return DEFAULT_ACCOUNTS;
+    }
+    const parsed: FinancialAccount[] = JSON.parse(raw);
+    if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
+      saveAccounts(DEFAULT_ACCOUNTS);
+      return DEFAULT_ACCOUNTS;
+    }
+    const hasDefault = parsed.some((a) => a.isDefault || a.id === 'ana-kasa');
+    if (!hasDefault) {
+      parsed.unshift(DEFAULT_ACCOUNTS[0]);
+      saveAccounts(parsed);
+    }
+    return parsed;
+  } catch (e) {
+    console.error('Failed to load accounts', e);
+    return DEFAULT_ACCOUNTS;
+  }
+}
+
+export function saveAccounts(accounts: FinancialAccount[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.ACCOUNTS, JSON.stringify(accounts));
+  } catch (e) {
+    console.error('Failed to save accounts', e);
+  }
+}
+
+export function loadAccountTransactions(): AccountTransaction[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNT_TRANSACTIONS);
+    if (!raw) return [];
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error('Failed to load account transactions', e);
+    return [];
+  }
+}
+
+export function saveAccountTransactions(txs: AccountTransaction[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.ACCOUNT_TRANSACTIONS, JSON.stringify(txs));
+  } catch (e) {
+    console.error('Failed to save account transactions', e);
+  }
+}
+
+export interface AccountBalanceSummary {
+  initialBalance: number;
+  totalDeposits: number;
+  totalWithdrawals: number;
+  totalTransfersIn: number;
+  totalTransfersOut: number;
+  totalExpenses: number;
+  totalInflow: number;
+  totalOutflow: number;
+  currentBalance: number;
+}
+
+export function calculateAccountBalance(
+  account: FinancialAccount,
+  expenses: CashExpense[] = [],
+  transactions: AccountTransaction[] = [],
+  masterSafe?: MasterSafeState
+): AccountBalanceSummary {
+  const initialBalance = Number(account.initialBalance) || 0;
+  let totalDeposits = 0;
+  let totalWithdrawals = 0;
+  let totalTransfersIn = 0;
+  let totalTransfersOut = 0;
+  let totalExpenses = 0;
+
+  transactions.forEach((tx) => {
+    const amount = Number(tx.amount) || 0;
+    if (tx.accountId === account.id) {
+      if (tx.type === 'deposit') {
+        totalDeposits += amount;
+      } else if (tx.type === 'withdrawal') {
+        totalWithdrawals += amount;
+      } else if (tx.type === 'transfer') {
+        totalTransfersOut += amount;
+      }
+    } else if (tx.type === 'transfer' && tx.toAccountId === account.id) {
+      totalTransfersIn += amount;
+    }
+  });
+
+  expenses.forEach((exp) => {
+    if (!exp.isActive) return;
+    const amount = Number(exp.amount) || 0;
+    const isThisAccount =
+      exp.accountId === account.id ||
+      (!exp.accountId && (account.isDefault || account.id === 'ana-kasa') && exp.paidBy === 'Kasa') ||
+      (!exp.accountId && account.type === 'bank' && exp.paidBy === 'Banka');
+
+    if (isThisAccount) {
+      totalExpenses += amount;
+    }
+  });
+
+  if ((account.isDefault || account.id === 'ana-kasa') && masterSafe?.transactions) {
+    masterSafe.transactions.forEach((st) => {
+      if (st.source === 'daily_closing' && st.type === 'deposit') {
+        const alreadyInTxs = transactions.some(
+          (tx) => tx.id === `vault-${st.id}` || (tx.type === 'deposit' && tx.amount === st.amount && tx.date === st.date)
+        );
+        if (!alreadyInTxs) {
+          totalDeposits += Number(st.amount) || 0;
+        }
+      }
+    });
+  }
+
+  const totalInflow = initialBalance + totalDeposits + totalTransfersIn;
+  const totalOutflow = totalWithdrawals + totalTransfersOut + totalExpenses;
+  const currentBalance = totalInflow - totalOutflow;
+
+  return {
+    initialBalance,
+    totalDeposits,
+    totalWithdrawals,
+    totalTransfersIn,
+    totalTransfersOut,
+    totalExpenses,
+    totalInflow,
+    totalOutflow,
+    currentBalance,
+  };
+}
+
 export function exportFullBackupJSON(): string {
   const data = {
     version: '2.0',
@@ -398,6 +559,8 @@ export function exportFullBackupJSON(): string {
     openAccountCustomers: loadOpenAccountCustomers(),
     openAccountTransactions: loadOpenAccountTransactions(),
     masterSafe: loadMasterSafe(),
+    accounts: loadAccounts(),
+    accountTransactions: loadAccountTransactions(),
   };
   return JSON.stringify(data, null, 2);
 }
@@ -420,6 +583,8 @@ export function restoreBackupJSON(jsonStr: string): boolean {
     if (data.openAccountCustomers) saveOpenAccountCustomers(data.openAccountCustomers);
     if (data.openAccountTransactions) saveOpenAccountTransactions(data.openAccountTransactions);
     if (data.masterSafe) saveMasterSafe(data.masterSafe);
+    if (data.accounts) saveAccounts(data.accounts);
+    if (data.accountTransactions) saveAccountTransactions(data.accountTransactions);
     return true;
   } catch (e) {
     console.error('Backup restore failed', e);
@@ -435,6 +600,8 @@ export interface AppState {
   openAccountCustomers: OpenAccountCustomer[];
   openAccountTransactions: OpenAccountTransaction[];
   masterSafe: MasterSafeState;
+  accounts: FinancialAccount[];
+  accountTransactions: AccountTransaction[];
   posDevices: POSDevice[];
   categories: ExpenseCategory[];
   profile: RestaurantProfile;
@@ -456,6 +623,8 @@ export function loadAppState(): AppState {
     openAccountCustomers: loadOpenAccountCustomers(),
     openAccountTransactions: loadOpenAccountTransactions(),
     masterSafe: loadMasterSafe(),
+    accounts: loadAccounts(),
+    accountTransactions: loadAccountTransactions(),
     posDevices: loadPOSDevices(),
     categories: loadExpenseCategories(),
     profile: loadRestaurantProfile(),
@@ -469,6 +638,8 @@ export function saveAppState(state: AppState): void {
   saveOpenAccountCustomers(state.openAccountCustomers || []);
   saveOpenAccountTransactions(state.openAccountTransactions || []);
   saveMasterSafe(state.masterSafe || DEFAULT_MASTER_SAFE);
+  saveAccounts(state.accounts || DEFAULT_ACCOUNTS);
+  saveAccountTransactions(state.accountTransactions || []);
   savePOSDevices(state.posDevices);
   saveExpenseCategories(state.categories);
   saveRestaurantProfile(state.profile);
@@ -491,6 +662,8 @@ export function resetAllFinancialData(currentState: AppState): AppState {
     openAccountCustomers: [],
     openAccountTransactions: [],
     masterSafe: DEFAULT_MASTER_SAFE,
+    accounts: DEFAULT_ACCOUNTS,
+    accountTransactions: [],
   };
   saveDailyEntries([]);
   saveCashExpenses([]);
@@ -498,6 +671,8 @@ export function resetAllFinancialData(currentState: AppState): AppState {
   saveOpenAccountCustomers([]);
   saveOpenAccountTransactions([]);
   saveMasterSafe(DEFAULT_MASTER_SAFE);
+  saveAccounts(DEFAULT_ACCOUNTS);
+  saveAccountTransactions([]);
   return cleanState;
 }
 

@@ -385,42 +385,6 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
   };
 
   // Cash withdrawal updater
-  const handleAddWithdrawal = () => {
-    const newWithdrawal: CashWithdrawalItem = {
-      id: `cw-${Date.now()}`,
-      description: 'Bankaya Yatırılan Nakit',
-      amount: 0,
-      target: 'Banka Hesabına Yatırılan',
-    };
-    onUpdateEntry({
-      ...currentEntry,
-      cashWithdrawals: [...(currentEntry.cashWithdrawals || []), newWithdrawal],
-      updatedAt: new Date().toISOString(),
-    });
-  };
-
-  const handleUpdateWithdrawal = (index: number, field: keyof CashWithdrawalItem, val: any) => {
-    const items = [...(currentEntry.cashWithdrawals || [])];
-    items[index] = {
-      ...items[index],
-      [field]: field === 'amount' ? parseNumberInput(val) : val,
-    };
-    onUpdateEntry({
-      ...currentEntry,
-      cashWithdrawals: items,
-      updatedAt: new Date().toISOString(),
-    });
-  };
-
-  const handleRemoveWithdrawal = (index: number) => {
-    const items = (currentEntry.cashWithdrawals || []).filter((_, i) => i !== index);
-    onUpdateEntry({
-      ...currentEntry,
-      cashWithdrawals: items,
-      updatedAt: new Date().toISOString(),
-    });
-  };
-
   const handleSave = () => {
     setSaveSuccess(true);
     setTimeout(() => setSaveSuccess(false), 2500);
@@ -439,20 +403,9 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
             <h2 className="text-xl font-bold text-white tracking-tight">
               {formatDateTR(currentEntry.date)} Kasa & Hasılat Girişi
             </h2>
-            <p className="text-xs text-gray-400 font-mono mt-0.5">
-              Grup raporunu PDF olarak yükleyin; Z raporları ve giderler düşülerek kalan nakit otomatik hesaplansın.
-            </p>
           </div>
 
           <div className="flex items-center space-x-2">
-            <button
-              onClick={handleImportClick}
-              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3.5 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
-            >
-              <Upload className="w-3.5 h-3.5 text-orange-400" />
-              <span>Excel / Metin</span>
-            </button>
-
             <button
               onClick={handleSave}
               className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer font-mono"
@@ -507,7 +460,19 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
             </div>
           </div>
 
-          <div className="flex-shrink-0">
+          <div className="flex-shrink-0 flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleImportClick();
+              }}
+              className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] text-xs font-mono font-semibold text-gray-200 hover:text-white transition cursor-pointer"
+            >
+              <Upload className="w-3.5 h-3.5 text-orange-400" />
+              <span>Excel / Metin</span>
+            </button>
+
             <span className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-lg bg-[#161b22] border border-[#30363d] text-xs font-mono font-semibold text-gray-300 hover:text-white">
               {isProcessingPdf ? (
                 <>
@@ -542,57 +507,69 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
       </div>
 
       {/* 2. PROMINENT AUTOMATIC CASH CALCULATION & STATUS BANNER */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-3 font-mono">
-        <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-xs text-gray-400 uppercase font-semibold block">1. Toplam Ciro (PDF / Vega)</span>
-          <div className="text-xl font-bold text-white mt-1">
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 font-mono">
+        <div className="p-3.5 sm:p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md min-w-0">
+          <span className="text-[11px] sm:text-xs text-gray-400 uppercase font-semibold block whitespace-nowrap truncate" title="1. Toplam Ciro (Vega)">
+            1. Toplam Ciro (Vega)
+          </span>
+          <div className="text-xl font-bold text-white mt-1 whitespace-nowrap truncate">
             {formatCurrency(reg.totalSales)}
           </div>
-          <span className="text-xs text-gray-400 block mt-0.5 font-medium">Grup raporu toplam hasılatı</span>
+          <span className="text-[11px] text-gray-400 block mt-0.5 font-medium whitespace-nowrap truncate" title="Grup raporu toplam hasılatı">
+            Grup raporu hasılatı
+          </span>
         </div>
 
-        <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-xs text-gray-400 uppercase font-semibold block">2. Kredi Kartı / POS Z Toplamı</span>
-          <div className="text-xl font-bold text-sky-400 mt-1">
+        <div className="p-3.5 sm:p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md min-w-0">
+          <span className="text-[11px] sm:text-xs text-gray-400 uppercase font-semibold block whitespace-nowrap truncate" title="2. Kredi Kartı / POS Z Toplamı">
+            2. Kredi Kartı / POS Z
+          </span>
+          <div className="text-xl font-bold text-sky-400 mt-1 whitespace-nowrap truncate">
             {formatCurrency(reg.posTotal > 0 ? reg.posTotal : reg.creditCardSales)}
           </div>
-          <span className="text-xs text-sky-400 block mt-0.5 font-medium">Terminallerden çekilen tutar</span>
+          <span className="text-[11px] text-sky-400 block mt-0.5 font-medium whitespace-nowrap truncate" title="Terminallerden çekilen tutar">
+            Terminallerden çekilen
+          </span>
         </div>
 
-        <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md">
-          <span className="text-xs text-gray-400 uppercase font-semibold block">3. Çıkan Kasa Gider & Fatura</span>
-          <div className="text-xl font-bold text-rose-400 mt-1">
+        <div className="p-3.5 sm:p-4 bg-[#161b22] border border-[#30363d] rounded-xl shadow-md min-w-0">
+          <span className="text-[11px] sm:text-xs text-gray-400 uppercase font-semibold block whitespace-nowrap truncate" title="3. Çıkan Kasa Gider & Fatura">
+            3. Çıkan Gider & Fatura
+          </span>
+          <div className="text-xl font-bold text-rose-400 mt-1 whitespace-nowrap truncate">
             -{formatCurrency(reg.totalCashOutflow)}
           </div>
-          <span className="text-xs text-rose-400/90 block mt-0.5 font-medium">Giderler + Fatura nakit çıkışları</span>
+          <span className="text-[11px] text-rose-400/90 block mt-0.5 font-medium whitespace-nowrap truncate" title="Giderler + Fatura nakit çıkışları">
+            Giderler + Fatura çıkışı
+          </span>
         </div>
 
-        <div className="p-4 bg-orange-500/10 border-2 border-orange-500/60 rounded-xl shadow-lg relative overflow-hidden">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-orange-400 uppercase font-bold tracking-wider">
-              OTOMATİK KALAN NET NAKİT
+        <div className="p-3.5 sm:p-4 bg-orange-500/10 border-2 border-orange-500/60 rounded-xl shadow-lg relative overflow-hidden min-w-0">
+          <div className="flex items-center justify-between gap-1.5 min-w-0">
+            <span className="text-[11px] sm:text-xs text-orange-400 uppercase font-bold tracking-wider whitespace-nowrap truncate" title="Otomatik Kalan Net Nakit">
+              Kalan Net Nakit
             </span>
             <button
               onClick={handleSyncToActualCash}
               title="Kalan nakiti fiili kasa sayımı ile eşitle"
-              className="text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-0.5 rounded transition cursor-pointer shadow-sm"
+              className="text-[10px] sm:text-xs bg-orange-600 hover:bg-orange-500 text-white font-bold px-2 py-0.5 rounded transition cursor-pointer shadow-sm whitespace-nowrap flex-shrink-0"
             >
               Eşitle ✓
             </button>
           </div>
-          <div className="text-2xl font-bold text-orange-400 mt-1">
+          <div className="text-2xl font-bold text-orange-400 mt-1 whitespace-nowrap truncate">
             {formatCurrency(reg.expectedCash)}
           </div>
-          <span className="text-xs text-gray-300 block mt-0.5 font-medium">
-            Devir + Nakit - (Giderler + Fatura)
+          <span className="text-[11px] text-gray-300 block mt-0.5 font-medium whitespace-nowrap truncate" title="Devir + Nakit - (Giderler + Fatura)">
+            Devir + Nakit - Çıkışlar
           </span>
         </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE (2-Column Grid) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: Vega Satışları & Ürün Grupları & POS Z Raporları (7 Cols) */}
-        <div className="lg:col-span-7 space-y-6">
+      {/* 3. MAIN WORKSPACE (2-Column Grid: Section 1 & Section 2) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Column 1: Vega Satışları & Ürün Grupları */}
+        <div className="space-y-6">
           {/* Section A: Vega / PDF Satış Raporu */}
           <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5">
@@ -1026,7 +1003,10 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               </div>
             )}
           </div>
+        </div>
 
+        {/* Column 2: POS Cihazları Z Raporları */}
+        <div className="space-y-6">
           {/* Section B: POS Cihazları Z Raporları */}
           <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg">
             <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 mb-3">
@@ -1146,221 +1126,6 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
               <strong className="text-lg font-bold text-sky-400">
                 {formatCurrency(reg.posTotal)}
               </strong>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Günlük Nakit Kasa Hesabı & Kalan Nakit (5 Cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg space-y-4">
-            <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5">
-              <div className="flex items-center space-x-3">
-                <span className="w-7 h-7 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono font-bold text-xs flex items-center justify-center">
-                  3
-                </span>
-                <div>
-                  <h3 className="font-bold text-white text-sm font-mono">
-                    Otomatik Kasa Hesabı
-                  </h3>
-                  <span className="text-xs text-gray-400 font-mono">
-                    Devir + Nakit Gelir - (Giderler + Fatura)
-                  </span>
-                </div>
-              </div>
-            </div>
-
-            {/* Step-by-Step Flow */}
-            <div className="space-y-3 text-xs font-mono">
-              {/* 1. Opening Cash */}
-              <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
-                <div>
-                  <span className="font-semibold text-gray-300">
-                    Önceki Günden Devir Kasa
-                  </span>
-                  <p className="text-[10px] text-gray-500">Güne başlanan nakit</p>
-                </div>
-                <div className="w-32">
-                  <SmartMoneyInput
-                    value={currentEntry.openingCash}
-                    onChange={(val) =>
-                      onUpdateEntry({
-                        ...currentEntry,
-                        openingCash: val,
-                        updatedAt: new Date().toISOString(),
-                      })
-                    }
-                    placeholder="0,00"
-                    className="px-2.5 py-1 text-xs font-bold text-white focus:border-orange-500"
-                  />
-                </div>
-              </div>
-
-              {/* 2. Cash Sales from Report */}
-              <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
-                <div>
-                  <span className="font-semibold text-emerald-400">
-                    (+) Günlük Nakit Satış Hasılatı
-                  </span>
-                  <p className="text-[10px] text-gray-500">Grup Raporu Nakit Geliri</p>
-                </div>
-                <span className="text-sm font-bold text-emerald-400">
-                  +{formatCurrency(reg.cashSales)}
-                </span>
-              </div>
-
-              {/* 3. Cash Expenses */}
-              <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
-                <div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="font-semibold text-amber-400">
-                      (-) Kasadan Ödenen Giderler
-                    </span>
-                    {onOpenNewExpense && (
-                      <button
-                        onClick={onOpenNewExpense}
-                        className="text-[10px] text-amber-400/80 hover:text-amber-300 underline"
-                      >
-                        +Ekle
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-500">
-                    Manav, personel avansı, temizlik vb.
-                  </p>
-                </div>
-                <span className="text-sm font-bold text-amber-400">
-                  -{formatCurrency(reg.cashExpenses)}
-                </span>
-              </div>
-
-              {/* 4. Invoice Cash Payments */}
-              <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] flex items-center justify-between">
-                <div>
-                  <div className="flex items-center space-x-1.5">
-                    <span className="font-semibold text-purple-400">
-                      (-) Kasadan Fatura Ödemeleri
-                    </span>
-                    {onOpenNewInvoice && (
-                      <button
-                        onClick={onOpenNewInvoice}
-                        className="text-[10px] text-purple-400/80 hover:text-purple-300 underline"
-                      >
-                        +Fatura
-                      </button>
-                    )}
-                  </div>
-                  <p className="text-[10px] text-gray-500">
-                    Kasadan nakit ödenen tedarikçi faturaları
-                  </p>
-                </div>
-                <span className="text-sm font-bold text-purple-400">
-                  -{formatCurrency(reg.invoiceCashPayments)}
-                </span>
-              </div>
-
-              {/* 5. Bank / Cash Withdrawals */}
-              <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d] space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="font-semibold text-gray-300">
-                    (-) Kasadan Bankaya Yatırılan / Çekim
-                  </span>
-                  <button
-                    onClick={handleAddWithdrawal}
-                    className="text-[11px] text-orange-400 hover:text-orange-300 font-semibold hover:underline cursor-pointer"
-                  >
-                    + Çekim Ekle
-                  </button>
-                </div>
-
-                {currentEntry.cashWithdrawals?.map((w, idx) => (
-                  <div key={w.id || idx} className="flex items-center space-x-2 pt-1">
-                    <input
-                      type="text"
-                      value={w.description}
-                      onChange={(e) => handleUpdateWithdrawal(idx, 'description', e.target.value)}
-                      placeholder="Bankaya Yatırılan"
-                      className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 flex-1 focus:border-orange-500 focus:outline-none"
-                    />
-                    <div className="w-28">
-                      <SmartMoneyInput
-                        value={w.amount}
-                        onChange={(val) => handleUpdateWithdrawal(idx, 'amount', val)}
-                        placeholder="0,00"
-                        className="px-2 py-0.5 text-xs font-bold text-white focus:border-orange-500"
-                      />
-                    </div>
-                    <button
-                      onClick={() => handleRemoveWithdrawal(idx)}
-                      className="text-gray-500 hover:text-rose-400 p-1 cursor-pointer"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                ))}
-
-                {(!currentEntry.cashWithdrawals || currentEntry.cashWithdrawals.length === 0) && (
-                  <p className="text-[10px] text-gray-500">Bankaya yatırılan nakit kaydı yok.</p>
-                )}
-              </div>
-
-              {/* 6. Expected Cash (OTOMATİK KALAN NAKİT) */}
-              <div className="bg-orange-500/10 text-white p-3.5 rounded-xl border-2 border-orange-500/60 flex items-center justify-between shadow-sm">
-                <div>
-                  <span className="text-xs text-orange-400 font-bold uppercase tracking-wide">
-                    (=) BEKLENEN / KALAN NAKİT KASA:
-                  </span>
-                  <p className="text-xs text-gray-300 font-medium">Giderler düşüldükten sonra kalan tutar</p>
-                </div>
-                <span className="text-xl font-bold text-orange-400">
-                  {formatCurrency(reg.expectedCash)}
-                </span>
-              </div>
-
-              {/* 7. Actual Counted Cash & Quick Sync Button */}
-              <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] space-y-2 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <label className="block text-xs font-bold text-white font-mono uppercase">
-                    (Fiili) Sayılan Kasa Tutarı *
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleSyncToActualCash}
-                    className="text-xs font-mono text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
-                  >
-                    Kalan Nakiti Yaz ({formatCurrency(reg.expectedCash)})
-                  </button>
-                </div>
-
-                <SmartMoneyInput
-                  value={currentEntry.actualCashInHand}
-                  onChange={(val) =>
-                    onUpdateEntry({
-                      ...currentEntry,
-                      actualCashInHand: val,
-                      updatedAt: new Date().toISOString(),
-                    })
-                  }
-                  placeholder="Fiziki sayılan kasa..."
-                  className="px-3.5 py-2 text-base font-bold text-white focus:border-orange-500"
-                />
-              </div>
-
-              {/* 8. Kasa Denkliği Durumu */}
-              <div
-                className={`p-3.5 rounded-xl border text-center transition ${
-                  reg.isCashBalanced
-                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold'
-                    : 'bg-rose-500/10 border-rose-500/40 text-rose-400 font-bold'
-                }`}
-              >
-                <div className="text-xs font-bold uppercase tracking-wider">
-                  {reg.isCashBalanced
-                    ? '✓ KASA TAM DENK (FARK YOK)'
-                    : reg.cashDifference > 0
-                    ? `⚠ KASA FAZLASI: +${formatCurrency(reg.cashDifference)}`
-                    : `⚠ KASA AÇIĞI: ${formatCurrency(reg.cashDifference)}`}
-                </div>
-              </div>
             </div>
           </div>
         </div>

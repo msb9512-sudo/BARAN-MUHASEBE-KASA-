@@ -18,11 +18,12 @@ import {
   PanelLeftOpen,
   UserCheck,
   Wallet,
+  Landmark,
 } from 'lucide-react';
 import { TabType } from '../types';
 import { RestaurantProfile } from '../utils/storage';
 
-export type NavGroupId = 'main' | 'cariler' | 'cashier' | 'reports';
+export type NavGroupId = 'main' | 'cashier' | 'accounts' | 'cariler' | 'reports';
 
 export interface NavSubItem {
   id: TabType;
@@ -110,6 +111,23 @@ export const NAVIGATION_GROUPS: NavGroup[] = [
         shortLabel: 'Ana Kasa',
         icon: Wallet,
         description: 'Kalan nakit aktarımı, banknot küpürleri ve harcama çıkışı',
+      },
+    ],
+  },
+  {
+    id: 'accounts',
+    label: 'Hesaplar (Kasa & Banka)',
+    shortLabel: 'Hesaplar',
+    icon: Landmark,
+    description: 'Ana Kasa & Banka Bakiyeleri',
+    defaultTab: 'accounts',
+    subItems: [
+      {
+        id: 'accounts',
+        label: 'Hesaplar (Kasa & Banka)',
+        shortLabel: 'Hesaplar',
+        icon: Landmark,
+        description: 'Ana kasa, banka hesapları ve bakiye takibi',
       },
     ],
   },

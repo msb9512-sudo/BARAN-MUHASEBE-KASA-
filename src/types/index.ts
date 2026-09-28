@@ -7,6 +7,7 @@ export type TabType =
   | 'openAccounts'
   | 'closing'
   | 'vault'
+  | 'accounts'
   | 'monthly'
   | 'workspace'
   | 'settings';
@@ -168,6 +169,43 @@ export interface DailyEntry {
   updatedAt: string;
 }
 
+export type AccountType = 'cash' | 'bank' | 'pos' | 'credit_card' | 'other';
+
+export interface FinancialAccount {
+  id: string;
+  name: string; // Örn: Ana Kasa (Nakit), Ziraat Bankası, Garanti POS, Şirket Kredi Kartı
+  type: AccountType;
+  bankName?: string;
+  accountNumber?: string; // IBAN veya Hesap No
+  initialBalance: number; // Başlangıç Bakiyesi
+  isDefault?: boolean; // Ana Kasa için true
+  color?: string; // Kart / rozet rengi
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AccountTransaction {
+  id: string;
+  accountId: string; // İşlemin ait olduğu ana hesap
+  accountName?: string;
+  date: string; // YYYY-MM-DD
+  type: 'deposit' | 'withdrawal' | 'transfer'; // Giriş, Çıkış, Virman
+  amount: number;
+  category?: string; // Sermaye, Kasa Devri, Havale/EFT, Ortak Çekimi, Masraf vb.
+  description: string;
+  toAccountId?: string; // Virman ise hedef hesap ID
+  toAccountName?: string;
+  fromAccountId?: string; // Virman ise kaynak hesap ID
+  fromAccountName?: string;
+  relatedExpenseId?: string;
+  relatedInvoiceId?: string;
+  receiptNo?: string;
+  enteredBy?: string;
+  notes?: string;
+  createdAt: string;
+}
+
 export interface CashExpense {
   id: string;
   date: string; // YYYY-MM-DD
@@ -175,6 +213,8 @@ export interface CashExpense {
   description: string;
   amount: number;
   paidBy: 'Kasa' | 'Banka' | 'Cepte/Şahsi';
+  accountId?: string; // Seçilen hesap ID'si (Örn: 'ana-kasa', 'ziraat', vb.)
+  accountName?: string; // Seçilen hesap adı
   receiptNo?: string;
   enteredBy: string;
   attachmentUrl?: string;

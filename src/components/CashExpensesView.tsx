@@ -13,9 +13,10 @@ import {
   DollarSign,
   Tag,
 } from 'lucide-react';
-import { CashExpense, ExpenseCategory } from '../types';
+import { CashExpense, ExpenseCategory, FinancialAccount } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportExpensesToExcel } from '../utils/excelExport';
+import { calculateAccountBalance, DEFAULT_ACCOUNTS } from '../utils/storage';
 import { SmartMoneyInput } from './SmartMoneyInput';
 import { CashierStepFooter } from './CashierStepFooter';
 import { TabType } from '../types';
@@ -24,6 +25,7 @@ interface CashExpensesViewProps {
   selectedDate: string;
   expenses: CashExpense[];
   categories: ExpenseCategory[];
+  accounts?: FinancialAccount[];
   onAddExpense: (expense: Omit<CashExpense, 'id' | 'createdAt'>) => void;
   onUpdateExpense: (expense: CashExpense) => void;
   onDeleteExpense: (id: string) => void;
@@ -34,6 +36,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   selectedDate,
   expenses,
   categories,
+  accounts = DEFAULT_ACCOUNTS,
   onAddExpense,
   onUpdateExpense,
   onDeleteExpense,
@@ -43,11 +46,14 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
+  const [accountFilter, setAccountFilter] = useState('all');
 
   // Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<CashExpense | null>(null);
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
+
+  const defaultAccount = accounts.find((a) => a.isDefault) || accounts[0] || DEFAULT_ACCOUNTS[0];
 
   const [formData, setFormData] = useState({
     date: selectedDate,
@@ -55,6 +61,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     description: '',
     amount: '',
     paidBy: 'Kasa' as 'Kasa' | 'Banka' | 'Cepte/Şahsi',
+    accountId: defaultAccount?.id || 'ana-kasa',
+    accountName: defaultAccount?.name || 'Ana Kasa (Nakit)',
     receiptNo: '',
     enteredBy: 'Kasa Sorumlusu',
     notes: '',
@@ -86,6 +94,12 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     // Source
     if (sourceFilter !== 'all' && exp.paidBy !== sourceFilter) return false;
 
+    // Account
+    if (accountFilter !== 'all') {
+      const expAccId = exp.accountId || (exp.paidBy === 'Banka' ? accounts.find((a) => a.type === 'bank')?.id : defaultAccount?.id);
+      if (expAccId !== accountFilter) return false;
+    }
+
     // Search Query
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
@@ -93,7 +107,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       const matchCat = exp.category.toLowerCase().includes(q);
       const matchReceipt = exp.receiptNo?.toLowerCase().includes(q);
       const matchUser = exp.enteredBy.toLowerCase().includes(q);
-      if (!matchDesc && !matchCat && !matchReceipt && !matchUser) return false;
+      const matchAcc = exp.accountName?.toLowerCase().includes(q);
+      if (!matchDesc && !matchCat && !matchReceipt && !matchUser && !matchAcc) return false;
     }
 
     return true;
@@ -105,6 +120,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
   const handleOpenAdd = () => {
+    const defaultAcc = accounts.find((a) => a.isDefault) || accounts[0] || DEFAULT_ACCOUNTS[0];
     setEditingExpense(null);
     setIsCustomCategoryMode(categories.length === 0);
     setFormData({
@@ -112,7 +128,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       category: categories[0]?.name || '',
       description: '',
       amount: '',
-      paidBy: 'Kasa',
+      paidBy: defaultAcc?.type === 'bank' ? 'Banka' : 'Kasa',
+      accountId: defaultAcc?.id || 'ana-kasa',
+      accountName: defaultAcc?.name || 'Ana Kasa (Nakit)',
       receiptNo: '',
       enteredBy: 'Kasa Sorumlusu',
       notes: '',
@@ -121,6 +139,12 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   };
 
   const handleOpenEdit = (exp: CashExpense) => {
+    const matchingAcc =
+      accounts.find((a) => a.id === exp.accountId) ||
+      (exp.paidBy === 'Banka'
+        ? accounts.find((a) => a.type === 'bank') || accounts[0]
+        : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0]);
+
     setEditingExpense(exp);
     const existsInList = categories.some((c) => c.name === exp.category);
     setIsCustomCategoryMode(!existsInList && !!exp.category);
@@ -130,6 +154,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       description: exp.description,
       amount: exp.amount.toString(),
       paidBy: exp.paidBy,
+      accountId: exp.accountId || matchingAcc?.id || 'ana-kasa',
+      accountName: exp.accountName || matchingAcc?.name || 'Ana Kasa',
       receiptNo: exp.receiptNo || '',
       enteredBy: exp.enteredBy,
       notes: exp.notes || '',
@@ -150,6 +176,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       return;
     }
 
+    const chosenAcc = accounts.find((a) => a.id === formData.accountId);
+    const finalAccountName = chosenAcc ? chosenAcc.name : formData.accountName;
+
     if (editingExpense) {
       onUpdateExpense({
         ...editingExpense,
@@ -158,6 +187,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         description: formData.description.trim(),
         amount: amountNum,
         paidBy: formData.paidBy,
+        accountId: formData.accountId,
+        accountName: finalAccountName,
         receiptNo: formData.receiptNo.trim() || undefined,
         enteredBy: formData.enteredBy.trim() || 'Kullanıcı',
         notes: formData.notes.trim() || undefined,
@@ -169,6 +200,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         description: formData.description.trim(),
         amount: amountNum,
         paidBy: formData.paidBy,
+        accountId: formData.accountId,
+        accountName: finalAccountName,
         receiptNo: formData.receiptNo.trim() || undefined,
         enteredBy: formData.enteredBy.trim() || 'Kullanıcı',
         notes: formData.notes.trim() || undefined,
@@ -282,6 +315,20 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Account Filter */}
+          <select
+            value={accountFilter}
+            onChange={(e) => setAccountFilter(e.target.value)}
+            className="bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
+          >
+            <option value="all">Tüm Hesaplar</option>
+            {accounts.map((acc) => (
+              <option key={acc.id} value={acc.id}>
+                {acc.name}
+              </option>
+            ))}
+          </select>
+
           {/* Category Dropdown */}
           <select
             value={categoryFilter}
@@ -321,7 +368,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                 <th className="py-3 px-4">Tarih</th>
                 <th className="py-3 px-4">Kategori</th>
                 <th className="py-3 px-4">Açıklama</th>
-                <th className="py-3 px-4">Ödeme Kaynağı</th>
+                <th className="py-3 px-4">Ödenen Hesap / Kaynak</th>
                 <th className="py-3 px-4">Fiş / Belge No</th>
                 <th className="py-3 px-4">Giriş Yapan</th>
                 <th className="py-3 px-4 text-right">Tutar</th>
@@ -356,17 +403,14 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <span
-                        className={`px-2 py-0.5 rounded text-[10px] font-semibold border ${
-                          exp.paidBy === 'Kasa'
-                            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
-                            : exp.paidBy === 'Banka'
-                            ? 'bg-blue-500/10 text-blue-400 border-blue-500/20'
-                            : 'bg-purple-500/10 text-purple-400 border-purple-500/20'
-                        }`}
-                      >
-                        {exp.paidBy}
-                      </span>
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-semibold text-white px-2 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[11px] whitespace-nowrap inline-block">
+                          {exp.accountName || (exp.paidBy === 'Banka' ? 'Banka Hesabı' : 'Ana Kasa (Nakit)')}
+                        </span>
+                        <span className="text-[10px] text-gray-500 font-mono">
+                          {exp.paidBy}
+                        </span>
+                      </div>
                     </td>
                     <td className="py-3 px-4 font-mono text-gray-400">
                       {exp.receiptNo || '-'}
@@ -523,18 +567,49 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                 </div>
 
                 <div>
-                  <label className="block font-semibold text-gray-300 mb-1">
-                    Ödeme Kaynağı *
-                  </label>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="block font-semibold text-gray-300">
+                      Ödeme Yapılan Hesap / Kasa *
+                    </label>
+                    {onNavigate && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsModalOpen(false);
+                          onNavigate('accounts');
+                        }}
+                        className="text-[10px] text-orange-400 hover:text-orange-300 underline cursor-pointer"
+                      >
+                        + Yeni Hesap Aç
+                      </button>
+                    )}
+                  </div>
                   <select
-                    value={formData.paidBy}
-                    onChange={(e) => setFormData({ ...formData, paidBy: e.target.value as any })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 focus:border-orange-500 focus:outline-none"
+                    value={formData.accountId}
+                    onChange={(e) => {
+                      const selectedId = e.target.value;
+                      const acc = accounts.find((a) => a.id === selectedId);
+                      setFormData({
+                        ...formData,
+                        accountId: selectedId,
+                        accountName: acc ? acc.name : '',
+                        paidBy: acc?.type === 'bank' ? 'Banka' : 'Kasa',
+                      });
+                    }}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white font-mono focus:border-orange-500 focus:outline-none"
                   >
-                    <option value="Kasa">Kasa (Günlük Nakit)</option>
-                    <option value="Banka">Banka Transferi / EFT</option>
-                    <option value="Cepte/Şahsi">Şahsi Cep / Kredi Kartı</option>
+                    {accounts.map((acc) => {
+                      const bal = calculateAccountBalance(acc, expenses).currentBalance;
+                      return (
+                        <option key={acc.id} value={acc.id}>
+                          {acc.name} — (Kalan: {formatCurrency(bal)})
+                        </option>
+                      );
+                    })}
                   </select>
+                  <span className="text-[10px] text-gray-500 mt-1 block">
+                    Gider bu hesaptan düşülür ve kalan para güncellenir.
+                  </span>
                 </div>
               </div>
 

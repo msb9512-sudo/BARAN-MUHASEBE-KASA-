@@ -20,6 +20,7 @@ import {
   Sparkles,
   ChevronRight,
   UserCheck,
+  Landmark,
 } from 'lucide-react';
 import {
   DailyEntry,
@@ -102,6 +103,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             >
               <Wallet className="w-3.5 h-3.5" />
               <span>Kasa Girişine Git</span>
+            </button>
+            <button
+              onClick={() => onNavigate('accounts')}
+              className="flex items-center space-x-2 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3.5 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
+            >
+              <Landmark className="w-3.5 h-3.5 text-sky-400" />
+              <span>Hesaplar & Bakiyeler</span>
             </button>
             <button
               onClick={() => onNavigate('closing')}

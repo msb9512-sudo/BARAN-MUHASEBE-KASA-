@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -79,6 +79,160 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const companyDisplayName = profile?.companyTitle || profile?.name || 'ŞİRKET ADI GİRİNİZ';
+
+  const subTabsContainerRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkScrollState = useCallback(() => {
+    const el = subTabsContainerRef.current;
+    if (!el) return;
+    setCanScrollLeft(el.scrollLeft > 6);
+    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 6);
+  }, []);
+
+  // Reset scroll and re-evaluate on group switch
+  useEffect(() => {
+    if (subTabsContainerRef.current) {
+      subTabsContainerRef.current.scrollLeft = 0;
+    }
+    checkScrollState();
+  }, [activeGroup.id, checkScrollState]);
+
+  // Listen to scroll events on container and window resize
+  useEffect(() => {
+    const el = subTabsContainerRef.current;
+    if (!el) return;
+    checkScrollState();
+    el.addEventListener('scroll', checkScrollState, { passive: true });
+    window.addEventListener('resize', checkScrollState);
+    return () => {
+      el.removeEventListener('scroll', checkScrollState);
+      window.removeEventListener('resize', checkScrollState);
+    };
+  }, [checkScrollState, activeGroup]);
+
+  // Support horizontal mouse wheel scroll over the subtabs bar
+  useEffect(() => {
+    const el = subTabsContainerRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0 && !e.shiftKey) {
+        e.preventDefault();
+        el.scrollLeft += e.deltaY;
+        checkScrollState();
+      }
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => {
+      el.removeEventListener('wheel', onWheel);
+    };
+  }, [checkScrollState]);
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    const el = subTabsContainerRef.current;
+    if (!el) return;
+    const scrollAmount = direction === 'left' ? -220 : 220;
+    el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    setTimeout(checkScrollState, 320);
+  };
+
+  // Scroll logic when tab is clicked: if user clicked near edge, reveal the next neighbor tab ("bir yandaki")!
+  const handleSubTabClick = (subId: TabType, index: number) => {
+    setActiveTab(subId);
+
+    setTimeout(() => {
+      const container = subTabsContainerRef.current;
+      if (!container) return;
+
+      const nextItem = activeGroup.subItems[index + 1];
+      const prevItem = activeGroup.subItems[index - 1];
+
+      // If there is a next tab, ensure it is completely visible in view
+      if (nextItem) {
+        const nextEl = document.getElementById(`subtab-${nextItem.id}`);
+        if (nextEl) {
+          const cRect = container.getBoundingClientRect();
+          const nRect = nextEl.getBoundingClientRect();
+          if (nRect.right > cRect.right - 24) {
+            const extra = nRect.right - cRect.right + 48;
+            container.scrollBy({ left: extra, behavior: 'smooth' });
+            setTimeout(checkScrollState, 320);
+            return;
+          }
+        }
+      }
+
+      // If moving backwards and previous tab is cut off on left
+      if (prevItem) {
+        const prevEl = document.getElementById(`subtab-${prevItem.id}`);
+        if (prevEl) {
+          const cRect = container.getBoundingClientRect();
+          const pRect = prevEl.getBoundingClientRect();
+          if (pRect.left < cRect.left + 24) {
+            const extra = pRect.left - cRect.left - 48;
+            container.scrollBy({ left: extra, behavior: 'smooth' });
+            setTimeout(checkScrollState, 320);
+            return;
+          }
+        }
+      }
+
+      const activeEl = document.getElementById(`subtab-${subId}`);
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+      setTimeout(checkScrollState, 320);
+    }, 40);
+  };
+
+  // When activeTab changes (e.g. from page navigation or shortcut), auto-scroll to reveal active & neighbor
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      const container = subTabsContainerRef.current;
+      if (!container) return;
+
+      const idx = activeGroup.subItems.findIndex((s) => s.id === activeTab);
+      if (idx === -1) return;
+
+      const nextItem = activeGroup.subItems[idx + 1];
+      const prevItem = activeGroup.subItems[idx - 1];
+
+      if (nextItem) {
+        const nextEl = document.getElementById(`subtab-${nextItem.id}`);
+        if (nextEl) {
+          const cRect = container.getBoundingClientRect();
+          const nRect = nextEl.getBoundingClientRect();
+          if (nRect.right > cRect.right - 24) {
+            container.scrollBy({ left: nRect.right - cRect.right + 48, behavior: 'smooth' });
+            setTimeout(checkScrollState, 320);
+            return;
+          }
+        }
+      }
+
+      if (prevItem) {
+        const prevEl = document.getElementById(`subtab-${prevItem.id}`);
+        if (prevEl) {
+          const cRect = container.getBoundingClientRect();
+          const pRect = prevEl.getBoundingClientRect();
+          if (pRect.left < cRect.left + 24) {
+            container.scrollBy({ left: pRect.left - cRect.left - 48, behavior: 'smooth' });
+            setTimeout(checkScrollState, 320);
+            return;
+          }
+        }
+      }
+
+      const activeEl = document.getElementById(`subtab-${activeTab}`);
+      if (activeEl) {
+        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      }
+      setTimeout(checkScrollState, 320);
+    }, 60);
+
+    return () => clearTimeout(timer);
+  }, [activeTab, activeGroup, checkScrollState]);
 
   return (
     <header className="bg-[#161b22] border-b border-[#30363d] text-gray-200 sticky top-0 z-40 shadow-xl">
@@ -184,36 +338,66 @@ export const Navbar: React.FC<NavbarProps> = ({
       </div>
 
       {/* Secondary Sub-Tabs Bar (Shows Sub-Items of Current Active Group at the Top) */}
-      <div className="border-t border-[#30363d] bg-[#0d1117] overflow-x-auto no-scrollbar">
-        <div className="w-full px-3 sm:px-6 lg:px-8 flex items-center justify-between py-1.5">
-          <div className="flex items-center space-x-1 sm:space-x-2 min-w-0">
+      <div className="border-t border-[#30363d] bg-[#0d1117]">
+        <div className="w-full px-3 sm:px-6 lg:px-8 flex items-center justify-between py-1.5 gap-2">
+          <div className="flex items-center space-x-1 sm:space-x-2 min-w-0 flex-1">
             {/* Active Group Indicator Badge */}
-            <div className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[11px] font-mono font-bold text-orange-400 shrink-0">
+            <div className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[11px] font-mono font-bold text-orange-400 shrink-0 select-none">
               <span>{activeGroup.label}</span>
               <ChevronRightIcon className="w-3 h-3 text-gray-500" />
             </div>
 
-            {/* Sub-Tabs for Active Group */}
-            <div className="flex items-center space-x-1 overflow-x-auto no-scrollbar py-0.5">
-              {activeGroup.subItems.map((sub) => {
-                const isActive = activeTab === sub.id;
-                const SubIcon = sub.icon;
-                return (
-                  <button
-                    key={sub.id}
-                    id={`subtab-${sub.id}`}
-                    onClick={() => setActiveTab(sub.id)}
-                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition cursor-pointer ${
-                      isActive
-                        ? 'bg-orange-500 text-white font-bold shadow-sm shadow-orange-500/20'
-                        : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d] border border-transparent'
-                    }`}
-                  >
-                    <SubIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-400'}`} />
-                    <span>{sub.label}</span>
-                  </button>
-                );
-              })}
+            {/* Scrollable Sub-Tabs Container with Left/Right Scroll Arrows */}
+            <div className="relative flex items-center min-w-0 flex-1">
+              {/* Left Arrow Button (shows when scrolled right) */}
+              {canScrollLeft && (
+                <button
+                  type="button"
+                  onClick={() => scrollTabs('left')}
+                  className="mr-1 p-1 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-gray-300 hover:text-white transition cursor-pointer shrink-0 z-10 shadow-sm"
+                  title="Önceki sekmelere kaydır"
+                >
+                  <ChevronLeft className="w-3.5 h-3.5" />
+                </button>
+              )}
+
+              {/* Sub-Tabs for Active Group */}
+              <div
+                ref={subTabsContainerRef}
+                className="flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth py-0.5 min-w-0 flex-1"
+              >
+                {activeGroup.subItems.map((sub, idx) => {
+                  const isActive = activeTab === sub.id;
+                  const SubIcon = sub.icon;
+                  return (
+                    <button
+                      key={sub.id}
+                      id={`subtab-${sub.id}`}
+                      onClick={() => handleSubTabClick(sub.id, idx)}
+                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition cursor-pointer shrink-0 ${
+                        isActive
+                          ? 'bg-orange-500 text-white font-bold shadow-sm shadow-orange-500/20'
+                          : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d] border border-transparent'
+                      }`}
+                    >
+                      <SubIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-400'}`} />
+                      <span>{sub.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              {/* Right Arrow Button (shows when more tabs are available to the right) */}
+              {canScrollRight && (
+                <button
+                  type="button"
+                  onClick={() => scrollTabs('right')}
+                  className="ml-1 p-1 bg-[#21262d] hover:bg-orange-500/20 border border-orange-500/40 rounded-md text-orange-400 hover:text-orange-300 transition cursor-pointer shrink-0 z-10 shadow-sm animate-pulse"
+                  title="Sonraki sekmelere kaydır"
+                >
+                  <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </div>
 
