@@ -8,31 +8,39 @@ import {
   ShieldCheck,
   FolderGit2,
   Terminal,
-  ExternalLink,
   Layers,
-  ArrowRight,
   Database,
-  Sparkles,
   Info,
   Server,
-  Lock,
+  GitCommit,
+  Check,
+  RotateCcw,
 } from 'lucide-react';
 
 interface SoftwareUpdateSectionProps {
   onNotify?: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
+const DEFAULT_REPO = 'msb9512-sudo/BARAN-MUHASEBE-KASA-';
+const DEFAULT_BRANCH = 'main';
+
 export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ onNotify }) => {
   // Current local version
   const [currentVersion, setCurrentVersion] = useState<string>('1.0.0');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
 
-  // GitHub configuration
+  // GitHub configuration (Correct default: msb9512-sudo/BARAN-MUHASEBE-KASA-)
   const [githubRepo, setGithubRepo] = useState<string>(() => {
-    return localStorage.getItem('app_update_github_repo') || 'msb9512/kasa-yonetimi';
+    const saved = localStorage.getItem('app_update_github_repo');
+    if (!saved || saved === 'msb9512/kasa-yonetimi' || saved.includes('kasa-yonetimi') || !saved.includes('/')) {
+      localStorage.setItem('app_update_github_repo', DEFAULT_REPO);
+      return DEFAULT_REPO;
+    }
+    return saved;
   });
+
   const [githubBranch, setGithubBranch] = useState<string>(() => {
-    return localStorage.getItem('app_update_github_branch') || 'main';
+    return localStorage.getItem('app_update_github_branch') || DEFAULT_BRANCH;
   });
   const [isRepoSaved, setIsRepoSaved] = useState(false);
 
@@ -41,6 +49,11 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
     'idle' | 'checking' | 'up-to-date' | 'update-available' | 'downloading' | 'success' | 'error'
   >('idle');
   const [remoteVersion, setRemoteVersion] = useState<string | null>(null);
+  const [lastCommitInfo, setLastCommitInfo] = useState<{
+    sha: string | null;
+    message: string | null;
+    date: string | null;
+  } | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [lastCheckTime, setLastCheckTime] = useState<string | null>(() => {
@@ -51,14 +64,31 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
   const [downloadStepText, setDownloadStepText] = useState<string>('');
   const [countdown, setCountdown] = useState<number>(3);
+  const [updatedFilesCount, setUpdatedFilesCount] = useState<number | null>(null);
+  const [updatedFilesList, setUpdatedFilesList] = useState<string[]>([]);
 
   // Active guide tab
   const [activeTab, setActiveTab] = useState<'status' | 'architecture' | 'guide'>('status');
 
-  // Load local version from version.txt on mount
+  // Load local version on mount
   useEffect(() => {
     let isMounted = true;
     async function loadVersion() {
+      try {
+        const res = await fetch(`/api/update/version?t=${Date.now()}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data.version && isMounted) {
+            setCurrentVersion(data.version);
+            localStorage.setItem('app_installed_version', data.version);
+            setIsLoadingLocalVersion(false);
+            return;
+          }
+        }
+      } catch {
+        // Fallback to static version.txt
+      }
+
       try {
         const res = await fetch(`/version.txt?t=${Date.now()}`);
         if (res.ok) {
@@ -73,7 +103,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
           if (isMounted) setCurrentVersion(saved);
         }
       } catch (err) {
-        console.warn('version.txt okunurken hata oluştu, varsayılan sürüm kullanılıyor:', err);
+        console.warn('version.txt okunurken hata oluştu:', err);
         const saved = localStorage.getItem('app_installed_version') || '1.0.0';
         if (isMounted) setCurrentVersion(saved);
       } finally {
@@ -88,12 +118,27 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
   // Save repo configuration
   const handleSaveRepoConfig = () => {
-    localStorage.setItem('app_update_github_repo', githubRepo.trim());
-    localStorage.setItem('app_update_github_branch', githubBranch.trim());
+    const cleanRepo = githubRepo.trim() || DEFAULT_REPO;
+    const cleanBranch = githubBranch.trim() || DEFAULT_BRANCH;
+    localStorage.setItem('app_update_github_repo', cleanRepo);
+    localStorage.setItem('app_update_github_branch', cleanBranch);
+    setGithubRepo(cleanRepo);
+    setGithubBranch(cleanBranch);
     setIsRepoSaved(true);
     setTimeout(() => setIsRepoSaved(false), 2500);
     if (onNotify) {
       onNotify('GitHub depo ayarları kaydedildi', 'success');
+    }
+  };
+
+  // Reset to default repo
+  const handleResetDefaultRepo = () => {
+    localStorage.setItem('app_update_github_repo', DEFAULT_REPO);
+    localStorage.setItem('app_update_github_branch', DEFAULT_BRANCH);
+    setGithubRepo(DEFAULT_REPO);
+    setGithubBranch(DEFAULT_BRANCH);
+    if (onNotify) {
+      onNotify(`Depo varsayılana (${DEFAULT_REPO}) sıfırlandı`, 'info');
     }
   };
 
@@ -111,166 +156,204 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
     return 0;
   };
 
-  // Check for updates via GitHub
+  // Check for updates via backend API and GitHub
   const handleCheckUpdates = async () => {
     setStatus('checking');
     setErrorDetails(null);
-    setStatusMessage('GitHub üzerinden en son sürüm sorgulanıyor...');
+    setStatusMessage('GitHub üzerinden en son sürüm bilgileri sorgulanıyor...');
 
-    const repoClean = githubRepo.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/$/, '');
-    const branchClean = githubBranch.trim() || 'main';
+    const repoClean = (githubRepo.trim() || DEFAULT_REPO)
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/\/$/, '');
+    const branchClean = githubBranch.trim() || DEFAULT_BRANCH;
 
     if (!repoClean || !repoClean.includes('/')) {
       setStatus('error');
-      setErrorDetails('Geçerli bir GitHub depo adı belirtiniz (Örnek: KULLANICI/REPO).');
-      setStatusMessage('Depo adı formatı geçersiz.');
+      setErrorDetails(`Geçerli bir GitHub depo adı belirtiniz (Örnek: ${DEFAULT_REPO}).`);
+      setStatusMessage('Depo formatı geçersiz.');
       return;
     }
 
     try {
-      // 1. Try raw version.txt from GitHub
-      const rawUrl = `https://raw.githubusercontent.com/${repoClean}/${branchClean}/version.txt?t=${Date.now()}`;
-      const rawPublicUrl = `https://raw.githubusercontent.com/${repoClean}/${branchClean}/public/version.txt?t=${Date.now()}`;
-
-      let fetchedVersion: string | null = null;
-
+      // 1. Backend endpoint /api/update/check
+      let apiSuccess = false;
       try {
-        const response = await fetch(rawUrl, { cache: 'no-store' });
-        if (response.ok) {
-          const txt = await response.text();
-          if (txt && txt.trim()) {
-            fetchedVersion = txt.trim();
+        const apiRes = await fetch('/api/update/check', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ repo: repoClean, branch: branchClean }),
+        });
+
+        if (apiRes.ok) {
+          const data = await apiRes.json();
+          if (data.success) {
+            apiSuccess = true;
+            const nowTime = new Date().toLocaleTimeString('tr-TR', {
+              hour: '2-digit',
+              minute: '2-digit',
+              second: '2-digit',
+            });
+            setLastCheckTime(nowTime);
+            localStorage.setItem('app_last_update_check', nowTime);
+
+            setRemoteVersion(data.remoteVersion);
+            if (data.lastCommit) {
+              setLastCommitInfo(data.lastCommit);
+            }
+
+            if (data.updateAvailable) {
+              setStatus('update-available');
+              setStatusMessage(`Yeni sürüm mevcut: v${data.remoteVersion} (Mevcut: v${data.currentVersion})`);
+            } else {
+              setStatus('up-to-date');
+              setStatusMessage(`Uygulamanız güncel! En son sürümü kullanıyorsunuz (v${data.currentVersion}).`);
+            }
+            return;
           }
         }
       } catch {
-        // Fallback to public/version.txt
+        // Fallback to direct GitHub fetch
       }
 
-      if (!fetchedVersion) {
-        try {
-          const responsePublic = await fetch(rawPublicUrl, { cache: 'no-store' });
-          if (responsePublic.ok) {
-            const txt = await responsePublic.text();
-            if (txt && txt.trim()) {
-              fetchedVersion = txt.trim();
-            }
-          }
-        } catch {
-          // Continue
+      if (!apiSuccess) {
+        // 2. Direct GitHub fetch fallback
+        const rawUrl = `https://raw.githubusercontent.com/${repoClean}/${branchClean}/version.txt?t=${Date.now()}`;
+        const rawRes = await fetch(rawUrl, { cache: 'no-store' });
+
+        if (!rawRes.ok) {
+          throw new Error(
+            `"${repoClean}" deposuna (${branchClean} dalı) erişilemedi veya version.txt bulunamadı (HTTP ${rawRes.status}).`
+          );
         }
-      }
 
-      // If raw failed, try GitHub API releases/latest as fallback
-      if (!fetchedVersion) {
-        try {
-          const apiUrl = `https://api.github.com/repos/${repoClean}/releases/latest`;
-          const apiRes = await fetch(apiUrl, {
-            headers: { Accept: 'application/vnd.github.v3+json' },
-          });
-          if (apiRes.ok) {
-            const data = await apiRes.json();
-            if (data.tag_name) {
-              fetchedVersion = data.tag_name.replace(/^v/i, '');
-            }
-          }
-        } catch {
-          // Continue
+        const txt = await rawRes.text();
+        const fetchedVersion = txt.trim();
+
+        if (!fetchedVersion) {
+          throw new Error('version.txt dosyası boş.');
         }
-      }
 
-      const nowTime = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-      setLastCheckTime(nowTime);
-      localStorage.setItem('app_last_update_check', nowTime);
+        const nowTime = new Date().toLocaleTimeString('tr-TR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+        setLastCheckTime(nowTime);
+        localStorage.setItem('app_last_update_check', nowTime);
 
-      if (!fetchedVersion) {
-        // Repository unreachable or version.txt not found yet
-        setStatus('error');
-        setErrorDetails(
-          `"${repoClean}" deposunda "${branchClean}" dalında "version.txt" dosyası bulunamadı veya internet bağlantısı kurulamadı. Mevcut sürümünüz (v${currentVersion}) bozulmadan çalışmaya devam ediyor.`
-        );
-        setStatusMessage('Güncelleme sunucusuna erişilemedi.');
-        return;
-      }
+        setRemoteVersion(fetchedVersion);
+        const comparison = compareSemVer(fetchedVersion, currentVersion);
 
-      setRemoteVersion(fetchedVersion);
-
-      const comparison = compareSemVer(fetchedVersion, currentVersion);
-
-      if (comparison > 0) {
-        // Update available!
-        setStatus('update-available');
-        setStatusMessage(`Yeni sürüm mevcut: v${fetchedVersion} (Mevcut: v${currentVersion})`);
-      } else {
-        // Up to date
-        setStatus('up-to-date');
-        setStatusMessage(`Uygulamanız güncel! En son sürümü kullanıyorsunuz (v${currentVersion}).`);
+        if (comparison > 0) {
+          setStatus('update-available');
+          setStatusMessage(`Yeni sürüm mevcut: v${fetchedVersion} (Mevcut: v${currentVersion})`);
+        } else {
+          setStatus('up-to-date');
+          setStatusMessage(`Uygulamanız güncel! En son sürümü kullanıyorsunuz (v${currentVersion}).`);
+        }
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Bilinmeyen bir ağ hatası oluştu';
       setStatus('error');
-      setErrorDetails(`Bağlantı hatası: ${msg}. Eski sürümünüz ve verileriniz güvendedir.`);
-      setStatusMessage('Güncelleme kontrolü başarısız.');
+      setErrorDetails(
+        `Güncelleme kontrolü başarısız: ${msg}. Eski çalışan sürümünüz (v${currentVersion}) bozulmadan korunmaktadır. Verileriniz güvendedir.`
+      );
+      setStatusMessage('Güncelleme sunucusuna erişilemedi.');
     }
   };
 
-  // Simulate an update check with a new version for test/demo purposes
-  const handleSimulateNewVersion = () => {
-    const parts = currentVersion.split('.').map((n) => parseInt(n, 10) || 0);
-    const bumped = `${parts[0] || 1}.${parts[1] || 0}.${(parts[2] || 0) + 1}`;
-    setRemoteVersion(bumped);
-    setStatus('update-available');
-    setStatusMessage(`Yeni sürüm mevcut: v${bumped} (Mevcut: v${currentVersion})`);
-    const nowTime = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-    setLastCheckTime(nowTime);
-  };
-
-  // Execute update process
-  const handleExecuteUpdate = () => {
-    if (!remoteVersion) return;
+  // REAL download and file application
+  const handleExecuteUpdate = async (targetVer?: string) => {
+    const versionToInstall = targetVer || remoteVersion || currentVersion;
 
     setStatus('downloading');
-    setDownloadProgress(0);
+    setDownloadProgress(10);
     setDownloadStepText('Kullanıcı verileri kilitleniyor ve güvenlik yedeği alınıyor...');
 
-    // Step 1: Verify data protection (0% - 25%)
-    setTimeout(() => {
-      setDownloadProgress(25);
-      setDownloadStepText('Kasa kayıtları, cariler ve veritabanı koruma altına alındı (Dokunulmayacak).');
+    // 1. Safety snapshot of all user records in localStorage before touching any code
+    try {
+      const snapshot: Record<string, string | null> = {};
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && !k.startsWith('app_update_') && !k.startsWith('emergency_')) {
+          snapshot[k] = localStorage.getItem(k);
+        }
+      }
+      localStorage.setItem(`emergency_user_data_backup_${Date.now()}`, JSON.stringify(snapshot));
+    } catch {
+      // Continue safely
+    }
 
-      // Step 2: Download files (25% - 70%)
-      setTimeout(() => {
-        setDownloadProgress(60);
-        setDownloadStepText(`GitHub'dan v${remoteVersion} dosyaları indiriliyor ve paket doğrulanıyor...`);
+    setDownloadProgress(25);
+    setDownloadStepText('Kasa kayıtları, cariler ve veritabanı koruma altına alındı (Dokunulmayacak).');
 
-        setTimeout(() => {
-          setDownloadProgress(85);
-          setDownloadStepText('Uygulama dosyaları güncelleniyor (Eski dosyaların üzerine yazılıyor)...');
+    const repoClean = (githubRepo.trim() || DEFAULT_REPO)
+      .replace(/^https?:\/\/github\.com\//i, '')
+      .replace(/\/$/, '');
+    const branchClean = githubBranch.trim() || DEFAULT_BRANCH;
 
-          // Step 3: Finalize update & bump version
-          setTimeout(() => {
-            setDownloadProgress(100);
-            setCurrentVersion(remoteVersion);
-            localStorage.setItem('app_installed_version', remoteVersion);
-            setStatus('success');
-            setStatusMessage(`v${remoteVersion} başarıyla yüklendi!`);
-            setDownloadStepText('Güncelleme tamamlandı. Uygulama kendini yeniden başlatıyor...');
+    try {
+      setDownloadProgress(45);
+      setDownloadStepText(`GitHub'dan (${repoClean}/${branchClean}) en güncel dosyalar indiriliyor...`);
 
-            // Step 4: Restart application with countdown
-            let secondsLeft = 3;
-            setCountdown(secondsLeft);
+      const res = await fetch('/api/update/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          repo: repoClean,
+          branch: branchClean,
+          targetVersion: versionToInstall,
+        }),
+      });
 
-            const interval = setInterval(() => {
-              secondsLeft -= 1;
-              setCountdown(secondsLeft);
-              if (secondsLeft <= 0) {
-                clearInterval(interval);
-                window.location.reload();
-              }
-            }, 1000);
-          }, 1000);
-        }, 1200);
+      setDownloadProgress(80);
+      setDownloadStepText('Eski dosyaların üzerine yazılıyor, veritabanı ve kullanıcı kayıtları korunuyor...');
+
+      const data = await res.json();
+
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Sunucu dosyaları üzerine yazarken bir hata ile karşılaştı.');
+      }
+
+      setDownloadProgress(100);
+      setUpdatedFilesCount(data.updatedCount || null);
+      if (data.updatedItems && Array.isArray(data.updatedItems)) {
+        setUpdatedFilesList(data.updatedItems);
+      }
+      setCurrentVersion(data.newVersion || versionToInstall);
+      localStorage.setItem('app_installed_version', data.newVersion || versionToInstall);
+      setStatus('success');
+      setStatusMessage(
+        `v${data.newVersion || versionToInstall} başarıyla yüklendi! (${data.updatedCount || 'Tüm'} dosya güncellendi)`
+      );
+      setDownloadStepText('Güncelleme tamamlandı. Uygulama kendini yeniden başlatıyor...');
+
+      if (onNotify) {
+        onNotify(`v${data.newVersion || versionToInstall} güncellemesi başarıyla yüklendi!`, 'success');
+      }
+
+      // 3-second countdown to reload
+      let secondsLeft = 3;
+      setCountdown(secondsLeft);
+      const interval = setInterval(() => {
+        secondsLeft -= 1;
+        setCountdown(secondsLeft);
+        if (secondsLeft <= 0) {
+          clearInterval(interval);
+          window.location.reload();
+        }
       }, 1000);
-    }, 800);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'İndirme sırasında beklenmeyen bir hata oluştu.';
+      setStatus('error');
+      setErrorDetails(
+        `Güncelleme indirilemedi: ${msg}. Eski çalışan sürümünüz (v${currentVersion}) bozulmadan korunmuştur. Kasa verileriniz ve ayarlarınız güvendedir.`
+      );
+      setStatusMessage('Güncelleme işlemi başarısız oldu.');
+      if (onNotify) {
+        onNotify('Güncelleme başarısız: ' + msg, 'error');
+      }
+    }
   };
 
   return (
@@ -287,13 +370,13 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 <span className="w-2 h-2 rounded-full bg-orange-500 inline-block animate-pulse"></span>
                 <span>YAZILIM GÜNCELLEME SİSTEMİ</span>
                 <span className="text-gray-500">•</span>
-                <span className="text-gray-400 lowercase font-normal">GitHub Entegrasyonu</span>
+                <span className="text-gray-400 lowercase font-normal">GitHub Canlı Güncelleme</span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
                 Otomatik Güncelleme & Sürüm Yönetimi
               </h2>
               <p className="text-xs text-gray-400 font-mono mt-0.5">
-                GitHub deponuz üzerinden en son sürümü denetleyin, güvenle güncelleyin. Kasa verileriniz ve ayarlarınız asla silinmez.
+                GitHub deponuz üzerinden en güncel dosyaları indirin ve uygulayın. Kasa verileriniz ve ayarlarınız asla silinmez.
               </p>
             </div>
           </div>
@@ -301,7 +384,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
           {/* Sürüm Rozeti */}
           <div className="flex items-center space-x-2 bg-[#0d1117] border border-[#30363d] px-3.5 py-2 rounded-xl shrink-0 self-start md:self-auto">
             <span className="text-xs font-mono text-gray-400">Mevcut Sürüm:</span>
-            <span className="text-sm font-bold font-mono text-orange-400 bg-orange-500/10 px-2 py-0.5 rounded border border-orange-500/30">
+            <span className="text-sm font-bold font-mono text-orange-400 bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/30">
               {isLoadingLocalVersion ? 'Okunuyor...' : `v${currentVersion}`}
             </span>
           </div>
@@ -362,9 +445,20 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   GitHub Güncelleme Kaynağı (Depo & Dal)
                 </h3>
               </div>
-              <span className="text-[11px] font-mono text-gray-400">
-                Hedef: raw.githubusercontent.com/{githubRepo}/{githubBranch}/version.txt
-              </span>
+              <div className="flex items-center space-x-2">
+                <span className="text-[11px] font-mono text-gray-400">
+                  Hedef: <strong className="text-orange-300">{githubRepo}</strong> ({githubBranch})
+                </span>
+                {githubRepo !== DEFAULT_REPO && (
+                  <button
+                    type="button"
+                    onClick={handleResetDefaultRepo}
+                    className="text-[11px] font-mono text-orange-400 hover:text-orange-300 underline cursor-pointer"
+                  >
+                    Varsayılana Sıfırla
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -376,7 +470,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   type="text"
                   value={githubRepo}
                   onChange={(e) => setGithubRepo(e.target.value)}
-                  placeholder="örn: msb9512/kasa-yonetimi"
+                  placeholder={DEFAULT_REPO}
                   className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none transition"
                 />
               </div>
@@ -389,7 +483,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   type="text"
                   value={githubBranch}
                   onChange={(e) => setGithubBranch(e.target.value)}
-                  placeholder="main"
+                  placeholder={DEFAULT_BRANCH}
                   className="w-full bg-[#0d1117] border border-[#30363d] rounded-xl px-3.5 py-2 text-xs font-mono text-white placeholder-gray-500 focus:border-orange-500 focus:outline-none transition"
                 />
               </div>
@@ -397,7 +491,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
             <div className="flex items-center justify-between pt-2">
               <p className="text-[11px] font-mono text-gray-500">
-                Her sürüm güncellemesinde bu depodaki <code className="text-orange-400">version.txt</code> dosyası sorgulanır.
+                GitHub deposundaki en güncel dosyalar bu adresten indirilip uygulamanın çalıştığı dizine yazılır.
               </p>
               <button
                 type="button"
@@ -406,7 +500,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               >
                 {isRepoSaved ? (
                   <>
-                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="text-emerald-400 font-bold">Kaydedildi</span>
                   </>
                 ) : (
@@ -449,17 +543,6 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <RefreshCw className={`w-4 h-4 ${status === 'checking' ? 'animate-spin' : ''}`} />
                   <span>{status === 'checking' ? 'Kontrol Ediliyor...' : 'Güncellemeleri Kontrol Et'}</span>
                 </button>
-
-                {/* Demo Yeni Sürüm Simülasyon Butonu (Test için) */}
-                <button
-                  type="button"
-                  onClick={handleSimulateNewVersion}
-                  className="px-3 py-2.5 bg-[#0d1117] hover:bg-[#21262d] border border-[#30363d] rounded-xl text-xs font-mono text-gray-400 hover:text-gray-200 transition cursor-pointer"
-                  title="GitHub deposu henüz hazır değilse yeni sürüm güncelleme akışını test et"
-                >
-                  <Sparkles className="w-3.5 h-3.5 inline mr-1 text-amber-400" />
-                  Test Sürümü Simüle Et
-                </button>
               </div>
             </div>
 
@@ -468,7 +551,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center space-x-3 text-xs font-mono text-gray-400">
                 <Info className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>
-                  Güncellemeleri denetlemek için yukarıdaki <strong>"Güncellemeleri Kontrol Et"</strong> butonuna basınız.
+                  GitHub'daki en son sürümü ve güncellemeleri denetlemek için yukarıdaki <strong>"Güncellemeleri Kontrol Et"</strong> butonuna basınız.
                 </span>
               </div>
             )}
@@ -476,19 +559,42 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
             {status === 'checking' && (
               <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center space-x-3 text-xs font-mono text-orange-300 animate-pulse">
                 <RefreshCw className="w-4 h-4 animate-spin text-orange-400 shrink-0" />
-                <span>GitHub deposu taranıyor ve son yayınlanan `version.txt` kontrol ediliyor...</span>
+                <span>GitHub deposu ({githubRepo}) taranıyor ve son yayınlanan `version.txt` kontrol ediliyor...</span>
               </div>
             )}
 
             {/* GÜNCEL DURUM */}
             {status === 'up-to-date' && (
-              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 flex items-start space-x-3 text-xs font-mono">
-                <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-                <div>
-                  <div className="font-bold text-sm text-emerald-400">Yazılımınız Tamamen Güncel!</div>
-                  <p className="text-emerald-300/80 mt-1">
-                    En son sürüm olan <strong>v{currentVersion}</strong> kullanılıyor. Herhangi bir yeni güncelleme bulunmamaktadır.
-                  </p>
+              <div className="p-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 space-y-3 text-xs font-mono">
+                <div className="flex items-start space-x-3">
+                  <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                  <div className="flex-1">
+                    <div className="font-bold text-sm text-emerald-400">Yazılımınız Tamamen Güncel!</div>
+                    <p className="text-emerald-300/80 mt-1">
+                      En son sürüm olan <strong>v{currentVersion}</strong> kullanılıyor. GitHub deposunda daha yeni bir sürüm numarası bulunmamaktadır.
+                    </p>
+                    {lastCommitInfo && lastCommitInfo.message && (
+                      <div className="mt-2 text-[11px] text-gray-400 flex items-center space-x-2">
+                        <GitCommit className="w-3.5 h-3.5 text-gray-500" />
+                        <span>Son Değişiklik ({lastCommitInfo.sha}): {lastCommitInfo.message}</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* İsteğe Bağlı: GitHub'dan en güncel kodları zorla yeniden çekme butonu */}
+                <div className="pt-2 border-t border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <span className="text-[11px] text-gray-400">
+                    GitHub main dalındaki en güncel dosyaları doğrudan indirip üzerine yazmak isterseniz:
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => handleExecuteUpdate(currentVersion)}
+                    className="px-3.5 py-1.5 bg-[#0d1117] hover:bg-[#21262d] border border-emerald-500/40 text-emerald-300 rounded-lg text-xs font-mono font-bold transition flex items-center space-x-1.5 shrink-0 cursor-pointer self-start sm:self-auto"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>En Güncel Dosyaları İndir ve Yenile</span>
+                  </button>
                 </div>
               </div>
             )}
@@ -514,21 +620,27 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <button
                     type="button"
                     id="btn-execute-update"
-                    onClick={handleExecuteUpdate}
+                    onClick={() => handleExecuteUpdate()}
                     className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-mono font-bold text-xs rounded-xl shadow-lg shadow-orange-500/25 transition cursor-pointer flex items-center justify-center space-x-2 shrink-0 border border-orange-400"
                   >
                     <Download className="w-4 h-4" />
-                    <span>Şimdi Güncelle (v{remoteVersion})</span>
+                    <span>Şimdi Güncelle ve İndir (v{remoteVersion})</span>
                   </button>
                 </div>
 
                 <div className="p-3 bg-[#0d1117] rounded-xl border border-[#30363d] space-y-2 text-xs font-mono">
-                  <div className="font-bold text-orange-300">Yenilikler & Değişiklik Özeti:</div>
-                  <ul className="list-disc list-inside text-gray-300 space-y-1">
-                    <li>Kasa yönetim raporlama performansı optimize edildi.</li>
-                    <li>Sistem ayarları alt menü akordeon yapısı ve görsel kontroller geliştirildi.</li>
-                    <li>GitHub otomatik sürüm yükseltme entegrasyonu sağlandı.</li>
-                  </ul>
+                  <div className="font-bold text-orange-300">İndirilecek Kaynak:</div>
+                  <div className="text-gray-300">
+                    Depo: <code className="text-orange-400">{githubRepo}</code> • Dal: <code className="text-orange-400">{githubBranch}</code>
+                  </div>
+                  {lastCommitInfo && lastCommitInfo.message && (
+                    <div className="text-gray-400 text-[11px] pt-1 border-t border-[#30363d]">
+                      Son Değişiklik ({lastCommitInfo.sha}): {lastCommitInfo.message}
+                    </div>
+                  )}
+                  <div className="text-[11px] text-emerald-400 pt-1">
+                    ✓ Kasa kayıtları, cariler, Z raporları ve veritabanı dosyaları bu işlemden asla etkilenmeyecektir.
+                  </div>
                 </div>
               </div>
             )}
@@ -539,7 +651,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 <div className="flex items-center justify-between text-xs font-mono">
                   <span className="text-orange-400 font-bold flex items-center space-x-2">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>Güncelleme Uygulanıyor...</span>
+                    <span>GitHub'dan Gerçek Dosyalar İndiriliyor & Yazılıyor...</span>
                   </span>
                   <span className="font-bold text-white font-mono">%{downloadProgress}</span>
                 </div>
@@ -552,7 +664,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   />
                 </div>
 
-                <p className="text-[11px] font-mono text-gray-400">{downloadStepText}</p>
+                <p className="text-[11px] font-mono text-gray-300">{downloadStepText}</p>
               </div>
             )}
 
@@ -564,8 +676,15 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>Güncelleme Başarıyla Tamamlandı!</span>
                 </div>
                 <p className="text-xs font-mono text-emerald-300/90">
-                  Uygulama başarıyla <strong>v{remoteVersion}</strong> sürümüne yükseltildi. Tüm kullanıcı verileriniz eksiksiz korundu.
+                  Uygulama başarıyla <strong>v{remoteVersion || currentVersion}</strong> sürümüne yükseltildi.
+                  {updatedFilesCount !== null && ` (${updatedFilesCount} dosya güncellendi). `}
+                  Tüm kasa kayıtlarınız, carileriniz ve kullanıcı verileriniz eksiksiz olarak korundu.
                 </p>
+                {updatedFilesList.length > 0 && (
+                  <div className="text-[11px] font-mono text-gray-400 pt-1">
+                    Güncellenen modüller: {updatedFilesList.join(', ')}
+                  </div>
+                )}
                 <div className="pt-2 text-xs font-mono text-white flex items-center space-x-2">
                   <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-ping"></span>
                   <span>Uygulama {countdown} saniye içinde kendini yeniden başlatıyor...</span>
@@ -578,13 +697,13 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               <div className="p-5 rounded-2xl bg-red-500/10 border border-red-500/40 text-red-300 space-y-2">
                 <div className="flex items-center space-x-2.5 font-bold text-sm text-red-400 font-mono">
                   <AlertTriangle className="w-5 h-5 text-red-400" />
-                  <span>Güncelleme Kontrolü Başarısız Oldu</span>
+                  <span>Güncelleme Kontrolü veya İndirme Başarısız Oldu</span>
                 </div>
                 <p className="text-xs font-mono text-red-200">
                   {errorDetails || statusMessage}
                 </p>
                 <div className="mt-3 p-3 bg-red-950/40 rounded-xl border border-red-500/30 text-[11px] font-mono text-gray-300">
-                  <strong className="text-emerald-400">Veri Güvenliği Garantisi:</strong> Mevcut çalışan sürümünüz (v{currentVersion}) ve kasa kayıtlarınız hiçbir zarar görmeden çalışmaya devam etmektedir. İnternet bağlantınızı kontrol edip tekrar deneyebilirsiniz.
+                  <strong className="text-emerald-400">Veri Güvenliği Garantisi:</strong> Mevcut çalışan sürümünüz (v{currentVersion}) ve kasa kayıtlarınız hiçbir zarar görmeden çalışmaya devam etmektedir. İnternet bağlantınızı veya GitHub depo ayarlarını kontrol edip tekrar deneyebilirsiniz.
                 </div>
               </div>
             )}
@@ -689,7 +808,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">2</span>
                   <div className="font-bold text-white">Geçici İndirme</div>
                   <p className="text-[11px] text-gray-400">
-                    Yeni dosyalar önce <code className="text-orange-300">temp_update/</code> klasörüne indirilir. İndirme kesilirse eski sürüm zarar görmez.
+                    Yeni dosyalar önce <code className="text-orange-300">.update_temp/</code> klasörüne indirilir. İndirme kesilirse eski sürüm zarar görmez.
                   </p>
                 </div>
 
@@ -697,7 +816,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">3</span>
                   <div className="font-bold text-white">Yedek & Üzerine Yazma</div>
                   <p className="text-[11px] text-gray-400">
-                    İndirme tamamlanınca sadece <code className="text-orange-300">app/</code> klasörünün üzerine yazılır. <code className="text-emerald-300">data/</code> klasörüne dokunulmaz.
+                    İndirme tamamlanınca sadece kod dosyalarının üzerine yazılır. <code className="text-emerald-300">data/</code> klasörüne dokunulmaz.
                   </p>
                 </div>
 
@@ -791,7 +910,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>Sonuç</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Push işlemi bittiği anda uygulamadaki <strong>"Güncellemeleri Kontrol Et"</strong> butonu yeni sürümü anında görecek ve kullanıcıya tek tıkla <strong>"Güncelle"</strong> seçeneği sunacaktır.
+                  Push işlemi bittiği anda uygulamadaki <strong>"Güncellemeleri Kontrol Et"</strong> butonu yeni sürümü anında görecek ve kullanıcıya tek tıkla <strong>"Şimdi Güncelle ve İndir"</strong> seçeneği sunacaktır.
                 </p>
               </div>
             </div>
