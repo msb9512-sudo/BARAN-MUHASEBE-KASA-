@@ -1,5 +1,6 @@
 {
-  "name": "react-example",
+  "name": "baran-muhasebe-kasa",
+  "productName": "Baran Muhasebe Kasa",
   "private": true,
   "version": "1.0.0",
   "main": "electron/main.cjs",
@@ -16,7 +17,7 @@
   },
   "build": {
     "appId": "com.baran.kasa.muhasebe",
-    "productName": "Baran Muhasebe ve Kasa Yönetimi",
+    "productName": "Baran Muhasebe Kasa",
     "directories": {
       "output": "dist-electron"
     },
@@ -29,7 +30,8 @@
       {
         "provider": "github",
         "owner": "msb9512-sudo",
-        "repo": "BARAN-MUHASEBE-KASA-"
+        "repo": "BARAN-MUHASEBE-KASA-",
+        "releaseType": "release"
       }
     ],
     "win": {
@@ -43,7 +45,8 @@
       ]
     },
     "nsis": {
-      "oneClick": false,
+      "oneClick": true,
+      "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
@@ -51,12 +54,21 @@
     }
   },
   "dependencies": {
+    "electron-updater": "^6.8.9"
+  },
+  "devDependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.1.14",
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.4",
+    "autoprefixer": "^10.4.21",
     "canvas-confetti": "^1.9.4",
     "dotenv": "^17.2.3",
-    "electron-updater": "^6.8.9",
+    "electron": "^44.4.5",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.25.0",
     "express": "^4.21.2",
     "firebase": "^12.17.1",
     "lucide-react": "^0.546.0",
@@ -64,20 +76,10 @@
     "pdfjs-dist": "^6.2.108",
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
-    "vite": "^6.2.3",
-    "xlsx": "^0.18.5"
-  },
-  "devDependencies": {
-    "@types/canvas-confetti": "^1.9.0",
-    "@types/express": "^4.17.21",
-    "@types/node": "^22.14.0",
-    "autoprefixer": "^10.4.21",
-    "electron": "^44.4.5",
-    "electron-builder": "^26.15.3",
-    "esbuild": "^0.25.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.3"
+    "vite": "^6.2.3",
+    "xlsx": "^0.18.5"
   }
 }

@@ -1,13 +1,24 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, session } = require('electron');
 const path = require('path');
-const fs = require('fs');
 const { autoUpdater } = require('electron-updater');
+const { startStaticServer } = require('./server.cjs');
 
-// Keep reference to main window to prevent garbage collection
+// Fixed port constant: Kasa verileri (localStorage / IndexedDB) bu origin'e bağlıdır.
+const FIXED_PORT = 47831;
+const APP_URL = `http://localhost:${FIXED_PORT}`;
+
+// 1. Single Instance Lock - İkinci bir kopya açılmasını engelle
+const gotTheLock = app.requestSingleInstanceLock();
+if (!gotTheLock) {
+  app.quit();
+  process.exit(0);
+}
+
 let mainWindow = null;
+let staticServer = null;
 
 // Configure autoUpdater
-autoUpdater.autoDownload = false; // User controls download via UI
+autoUpdater.autoDownload = false; // Kullanıcı ayarlar sayfasından butona basarak indirir
 autoUpdater.autoInstallOnAppQuit = true;
 autoUpdater.allowPrerelease = false;
 autoUpdater.logger = console;
@@ -25,7 +36,7 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
-    title: 'Baran Muhasebe ve Kasa Yönetim Sistemi',
+    title: 'Baran Muhasebe Kasa',
     backgroundColor: '#0a0d12',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -36,32 +47,58 @@ function createWindow() {
     show: false,
   });
 
+  // Google girişinin engellenmemesi için User-Agent'tan 'Electron/...' ifadesini temizle
+  const currentUA = mainWindow.webContents.getUserAgent();
+  const cleanUA = currentUA.replace(/\sElectron\/[0-9\.]+/i, '');
+  mainWindow.webContents.setUserAgent(cleanUA);
+  session.defaultSession.setUserAgent(cleanUA);
+
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
 
-  // Open external links in user's default browser
+  // setWindowOpenHandler: Google girişi ve yerel adresler uygulama içi pencerede açılsın,
+  // diğer dış bağlantılar varsayılan tarayıcıda açılsın.
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const parsed = new URL(url);
+      const host = parsed.hostname.toLowerCase();
+
+      // accounts.google.com, firebaseapp.com ve localhost:47831 adresleri uygulama içinde açılsın
+      if (
+        host.includes('accounts.google.com') ||
+        host.includes('firebaseapp.com') ||
+        (host === 'localhost' && parsed.port === String(FIXED_PORT)) ||
+        (host === '127.0.0.1' && parsed.port === String(FIXED_PORT))
+      ) {
+        return {
+          action: 'allow',
+          overrideBrowserWindowOptions: {
+            width: 600,
+            height: 700,
+            autoHideMenuBar: true,
+            webPreferences: {
+              nodeIntegration: false,
+              contextIsolation: true,
+            },
+          },
+        };
+      }
+    } catch {
+      // Geçersiz url durumunda yoksay
+    }
+
+    // Diğer harici bağlantılar varsayılan tarayıcıda açılsın
     if (url.startsWith('https:') || url.startsWith('http:')) {
       shell.openExternal(url);
     }
     return { action: 'deny' };
   });
 
-  // Load URL or local index.html
-  const isDev = process.env.NODE_ENV === 'development' || !app.isPackaged;
-  if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
-  } else {
-    const indexPath = path.join(__dirname, '..', 'dist', 'index.html');
-    if (fs.existsSync(indexPath)) {
-      mainWindow.loadFile(indexPath);
-    } else {
-      mainWindow.loadURL('http://localhost:3000');
-    }
-  }
+  // Sabit port üzerinden uygulamayı yükle (localStorage ve kasa verileri bu adreste saklanır)
+  mainWindow.loadURL(APP_URL);
 
-  // Handle autoUpdater events and forward to renderer process
+  // AutoUpdater event listeners -> Renderer süreci
   autoUpdater.on('checking-for-update', () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('updater:checking');
@@ -151,13 +188,32 @@ ipcMain.handle('updater:download-update', async () => {
 });
 
 ipcMain.handle('updater:quit-and-install', () => {
-  // isSilent: false, isForceRunAfter: true
-  // User data in %APPDATA%/baran-kasa-yonetimi is strictly preserved by NSIS/Squirrel
   autoUpdater.quitAndInstall(false, true);
 });
 
-// App lifecycle
-app.whenReady().then(() => {
+// İkinci kopya açılmaya çalışıldığında mevcut pencereyi öne getir
+app.on('second-instance', () => {
+  if (mainWindow) {
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.focus();
+  }
+});
+
+// App Lifecycle
+app.whenReady().then(async () => {
+  try {
+    // Sabit 47831 portunda yerel sunucuyu başlat
+    staticServer = await startStaticServer(FIXED_PORT);
+  } catch (err) {
+    console.error(`Port ${FIXED_PORT} başlatılamadı:`, err);
+    dialog.showErrorBox(
+      'Port Hatası (47831)',
+      `Uygulama için gerekli olan sabit 47831 portu başka bir program tarafından kullanılıyor veya erişilemiyor.\n\nKasa kayıtlarınızın (localStorage) güvenliği için port sabit tutulmaktadır. Lütfen çakışan programı kapatıp uygulamayı tekrar başlatınız.`
+    );
+    app.quit();
+    return;
+  }
+
   createWindow();
 
   app.on('activate', () => {
@@ -170,5 +226,15 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
     app.quit();
+  }
+});
+
+app.on('will-quit', () => {
+  if (staticServer) {
+    try {
+      staticServer.close();
+    } catch {
+      // ignore
+    }
   }
 });
