@@ -110,7 +110,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     }
   };
 
-  const [searchFilter, setSearchFilter] = useState('');
   const [profileForm, setProfileForm] = useState<RestaurantProfile>({
     ...profile,
     companyTitle: profile.companyTitle || profile.name || '',
@@ -253,54 +252,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     return currentGroup.items.find((item) => item.id === activeSection) || currentGroup.items[0];
   }, [currentGroup, activeSection]);
 
-  // Filtered sub-groups for instant search
-  const filteredSubGroups = useMemo(() => {
-    if (!searchFilter.trim()) return subGroups;
-    const q = searchFilter.toLowerCase();
-    return subGroups.map((g) => ({
-      ...g,
-      items: g.items.filter(
-        (item) =>
-          item.label.toLowerCase().includes(q) ||
-          item.subtext.toLowerCase().includes(q) ||
-          g.title.toLowerCase().includes(q)
-      ),
-    })).filter((g) => g.items.length > 0);
-  }, [subGroups, searchFilter]);
-
-  // Track accordion open/closed state for sub-groups on desktop left panel
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Record<string, boolean>>({
-    corporate: true,
-    ui: true,
-    maintenance: true,
-    cloud: true,
-  });
-
-  // Ensure current active group is open when section changes
-  useEffect(() => {
-    if (currentGroup?.id) {
-      setExpandedGroupIds((prev) => ({
-        ...prev,
-        [currentGroup.id]: true,
-      }));
-    }
-  }, [currentGroup?.id]);
-
-  const toggleGroupExpanded = (groupId: string) => {
-    setExpandedGroupIds((prev) => ({
-      ...prev,
-      [groupId]: !prev[groupId],
-    }));
-  };
-
-  const handleExpandAll = (expand: boolean) => {
-    const updated: Record<string, boolean> = {};
-    subGroups.forEach((g) => {
-      updated[g.id] = expand;
-    });
-    setExpandedGroupIds(updated);
-  };
-
   // Auto-generate stamp text helper
   const handleGenerateStampText = () => {
     const lines = [
@@ -394,310 +345,35 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div className="space-y-6 pb-12 font-sans">
-      {/* 1. Header Banner */}
-      <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 sm:p-6 text-gray-200 shadow-xl">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-          <div className="flex items-center space-x-3.5">
-            <div className="p-3 rounded-2xl bg-orange-500/10 border border-orange-500/30 text-orange-400 shrink-0 shadow-inner">
-              <Building2 className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2 text-xs font-semibold text-orange-500 uppercase tracking-wider mb-0.5 font-mono">
-                <span className="w-2 h-2 rounded-full bg-orange-500 inline-block"></span>
-                <span>SİSTEM & KURUMSAL AYARLAR</span>
-                <span className="text-gray-500">•</span>
-                <span className="text-gray-400 lowercase font-normal">3 alt grup / 6 modül</span>
-              </div>
-              <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                {profileForm.companyTitle || profileForm.name || 'Sistem Ayarları'}
-              </h2>
-              <p className="text-xs text-gray-400 font-mono mt-0.5">
-                Ayarlarınız gruplandırılmıştır: Kurumsal Tanımlar, Arayüz & Görünüm ve Veri Güvenliği alt gruplarından dilediğinizi yönetebilirsiniz.
-              </p>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 self-start sm:self-auto flex-wrap">
-            {savedSuccess && (
-              <div className="px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs font-mono font-bold flex items-center space-x-2 animate-pulse">
-                <Check className="w-4 h-4" />
-                <span>Ayarlar Kaydedildi!</span>
-              </div>
-            )}
-            {resetSuccessMessage && (
-              <div className="px-3.5 py-1.5 bg-emerald-500/10 border border-emerald-500/30 rounded-lg text-emerald-400 text-xs font-mono font-bold flex items-center space-x-2 animate-pulse">
-                <Check className="w-4 h-4" />
-                <span>{resetSuccessMessage}</span>
-              </div>
-            )}
-          </div>
+      {savedSuccess && (
+        <div className="px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-mono font-bold flex items-center space-x-2 animate-pulse">
+          <Check className="w-4 h-4" />
+          <span>Ayarlar Kaydedildi!</span>
         </div>
+      )}
+      {resetSuccessMessage && (
+        <div className="px-4 py-2.5 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-emerald-400 text-xs font-mono font-bold flex items-center space-x-2 animate-pulse">
+          <Check className="w-4 h-4" />
+          <span>{resetSuccessMessage}</span>
+        </div>
+      )}
 
-        {/* Ayarlar Alt Grupları - Horizontal Visual Category Selector on ALL screens */}
-        <div className="mt-5 pt-4 border-t border-[#30363d] space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="text-xs font-mono text-gray-300 font-bold uppercase tracking-wider flex items-center space-x-2">
-              <Layers className="w-3.5 h-3.5 text-orange-400" />
-              <span>SİSTEM AYARLARI ALT GRUPLARI</span>
-            </div>
-            <span className="text-[11px] font-mono text-gray-400">
-              {subGroups.length} ana kategori • {subGroups.reduce((acc, g) => acc + g.items.length, 0)} alt modül
+      {/* Active Setting Panel (Full Width) */}
+      <div className="w-full space-y-4">
+        {/* Breadcrumb Banner */}
+        <div className="bg-[#161b22] border border-[#30363d] rounded-xl px-4 py-3 flex items-center justify-between text-xs font-mono shadow-sm">
+          <div className="flex items-center space-x-2 min-w-0">
+            <span className="text-gray-400 font-medium truncate">{currentGroup.title}</span>
+            <ChevronRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+            <span className="text-orange-400 font-bold truncate flex items-center gap-1.5">
+              <currentItem.icon className="w-3.5 h-3.5 text-orange-400 shrink-0" />
+              <span>{currentItem.label}</span>
             </span>
           </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3">
-            {subGroups.map((g) => {
-              const isGroupActive = g.id === currentGroup.id;
-              const GIcon = g.icon;
-              return (
-                <button
-                  key={g.id}
-                  type="button"
-                  onClick={() => {
-                    if (g.id === 'cloud' && onNavigate) {
-                      setActiveSection('cloud');
-                    } else if (g.items.length > 0) {
-                      setActiveSection(g.items[0].id);
-                    }
-                  }}
-                  className={`p-3.5 rounded-2xl border text-left font-mono transition-all duration-200 cursor-pointer flex flex-col justify-between relative group ${
-                    isGroupActive
-                      ? 'bg-gradient-to-br from-orange-500/20 to-amber-500/10 border-orange-500 ring-2 ring-orange-500/30 text-white shadow-lg shadow-orange-500/10'
-                      : 'bg-[#0d1117] hover:bg-[#21262d] border-[#30363d] text-gray-300 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2 mb-2">
-                    <div className="flex items-center space-x-2.5 min-w-0">
-                      <div className={`p-2 rounded-xl transition ${
-                        isGroupActive
-                          ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/30'
-                          : 'bg-[#161b22] text-orange-400 group-hover:bg-[#30363d] group-hover:text-orange-300'
-                      }`}>
-                        <GIcon className="w-4 h-4" />
-                      </div>
-                      <span className="font-bold text-xs truncate text-white">{g.shortTitle}</span>
-                    </div>
-                    <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold uppercase shrink-0 ${
-                      isGroupActive
-                        ? 'bg-orange-500/30 text-orange-200 border border-orange-500/40'
-                        : 'bg-[#21262d] text-gray-400 border border-[#30363d]'
-                    }`}>
-                      {g.badgeText}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-400 font-mono line-clamp-2 leading-tight">
-                    {g.description}
-                  </p>
-                </button>
-              );
-            })}
-          </div>
-
-          {/* Sub-items under active group (Secondary tab bar) */}
-          <div className="bg-[#0d1117] border border-[#30363d] rounded-xl p-2.5 flex items-center justify-between flex-wrap gap-2">
-            <div className="flex items-center space-x-2 text-xs font-mono text-gray-400 font-bold px-1">
-              <span className="text-orange-400">» {currentGroup.title}</span>
-              <span className="text-gray-600">|</span>
-              <span className="text-gray-400 text-[11px] font-normal">Modüller:</span>
-            </div>
-            <div className="flex flex-wrap items-center gap-1.5">
-              {currentGroup.items.map((item) => {
-                const isActive = activeSection === item.id;
-                const ItemIcon = item.icon;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setActiveSection(item.id)}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-mono transition flex items-center space-x-1.5 cursor-pointer border ${
-                      isActive
-                        ? 'bg-orange-600 text-white font-bold border-orange-500 shadow-md shadow-orange-600/30'
-                        : 'bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white border-[#30363d]'
-                    }`}
-                  >
-                    <ItemIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-orange-400'}`} />
-                    <span>{item.label}</span>
-                    {item.badge !== undefined && (
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-bold ${
-                        isActive ? 'bg-black/30 text-white' : 'bg-[#21262d] text-gray-400'
-                      }`}>
-                        {item.badge}
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-[#0d1117] text-gray-400 border border-[#30363d] shrink-0">
+            {currentGroup.badgeText}
+          </span>
         </div>
-      </div>
-
-      {/* 2. Main Layout (Grouped Sidebar on Desktop + Content Column) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Sub-groups Navigation (4 Cols) */}
-        <div className="hidden lg:block lg:col-span-4 space-y-4">
-          {/* Quick Search inside Settings */}
-          <div className="bg-[#161b22] border border-[#30363d] rounded-xl p-3 shadow-md">
-            <div className="relative">
-              <Search className="w-3.5 h-3.5 text-gray-400 absolute left-3 top-2.5" />
-              <input
-                type="text"
-                value={searchFilter}
-                onChange={(e) => setSearchFilter(e.target.value)}
-                placeholder="Ayar ara... (Kaşe, POS, Tema, Sıfırla)"
-                className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder-gray-500 font-mono focus:border-orange-500 focus:outline-none"
-              />
-              {searchFilter && (
-                <button
-                  onClick={() => setSearchFilter('')}
-                  className="absolute right-2.5 top-2 text-gray-400 hover:text-white cursor-pointer"
-                >
-                  <X className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Header Controls for Left Accordion: Total count + Tümünü Aç/Kapat */}
-          <div className="flex items-center justify-between px-1 text-[11px] font-mono text-gray-400">
-            <span className="font-bold text-gray-300">Ayar Alt Grupları ({filteredSubGroups.length})</span>
-            <div className="flex items-center space-x-2">
-              <button
-                type="button"
-                onClick={() => handleExpandAll(true)}
-                className="text-[10px] text-gray-400 hover:text-orange-400 transition cursor-pointer"
-                title="Tüm alt grupları genişlet"
-              >
-                Tümünü Aç
-              </button>
-              <span className="text-gray-600">/</span>
-              <button
-                type="button"
-                onClick={() => handleExpandAll(false)}
-                className="text-[10px] text-gray-400 hover:text-orange-400 transition cursor-pointer"
-                title="Tüm alt grupları daralt"
-              >
-                Kapat
-              </button>
-            </div>
-          </div>
-
-          {/* Sub-groups Accordion/List */}
-          {filteredSubGroups.map((group) => {
-            const isThisGroupActive = group.id === currentGroup.id;
-            const isGroupOpen = searchFilter.trim() ? true : (expandedGroupIds[group.id] ?? false);
-            const GIcon = group.icon;
-
-            return (
-              <div
-                key={group.id}
-                className={`bg-[#161b22] border rounded-2xl p-4 shadow-md transition space-y-2.5 ${
-                  isThisGroupActive ? 'border-orange-500/40 ring-1 ring-orange-500/20' : 'border-[#30363d]'
-                }`}
-              >
-                {/* Group Header Button - Click toggles sub-categories open/close */}
-                <button
-                  type="button"
-                  onClick={() => toggleGroupExpanded(group.id)}
-                  className="w-full flex items-center justify-between pb-2 border-b border-[#30363d] cursor-pointer text-left group/hdr"
-                  title={`${group.title} alt kategorilerini aç / kapat`}
-                >
-                  <div className="flex items-center space-x-2 min-w-0">
-                    <div className={`p-1.5 rounded-lg shrink-0 ${isThisGroupActive ? 'bg-orange-500/20 text-orange-400' : 'bg-[#21262d] text-gray-400'}`}>
-                      <GIcon className="w-4 h-4" />
-                    </div>
-                    <div className="min-w-0">
-                      <h3 className="font-bold text-xs uppercase tracking-wider text-white font-mono group-hover/hdr:text-orange-400 transition">
-                        {group.title}
-                      </h3>
-                      <p className="text-[10px] text-gray-400 font-mono leading-tight truncate">
-                        {group.description}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center space-x-1.5 shrink-0 pl-1">
-                    <span className={`text-[10px] font-mono px-2 py-0.5 rounded font-bold uppercase ${
-                      isThisGroupActive ? 'bg-orange-500/20 text-orange-300' : 'bg-[#21262d] text-gray-400'
-                    }`}>
-                      {group.badgeText}
-                    </span>
-                    <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${
-                      isGroupOpen ? 'rotate-180 text-orange-400' : ''
-                    }`} />
-                  </div>
-                </button>
-
-                {/* Sub-items in this group (Collapsible) */}
-                {isGroupOpen && (
-                  <div className="space-y-1.5 pt-1">
-                    {group.items.map((item) => {
-                      const isActive = activeSection === item.id;
-                      const ItemIcon = item.icon;
-
-                      return (
-                        <button
-                          key={item.id}
-                          type="button"
-                          onClick={() => setActiveSection(item.id)}
-                          className={`w-full text-left p-2.5 rounded-xl font-mono text-xs transition flex items-center justify-between cursor-pointer border ${
-                            isActive
-                              ? 'bg-orange-600 text-white font-bold border-orange-500 shadow-md shadow-orange-600/20'
-                              : 'bg-[#0d1117] hover:bg-[#21262d] text-gray-300 hover:text-white border-[#30363d]'
-                          }`}
-                        >
-                          <div className="flex items-center space-x-2.5 min-w-0">
-                            <ItemIcon className={`w-4 h-4 shrink-0 ${isActive ? 'text-white' : 'text-orange-400'}`} />
-                            <div className="min-w-0">
-                              <div className="truncate font-semibold">{item.label}</div>
-                              <div className={`text-[10px] truncate ${isActive ? 'text-orange-100' : 'text-gray-400'}`}>
-                                {item.subtext}
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center space-x-1.5 shrink-0 pl-1">
-                            {item.badge !== undefined && (
-                              <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${
-                                isActive ? 'bg-black/30 text-white' : 'bg-[#21262d] text-gray-400 border border-[#30363d]'
-                              }`}>
-                                {item.badge}
-                              </span>
-                            )}
-                            <ChevronRight className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-500'}`} />
-                          </div>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-
-          {filteredSubGroups.length === 0 && (
-            <div className="p-4 bg-[#161b22] border border-[#30363d] rounded-xl text-center text-xs text-gray-400 font-mono">
-              Arama kriterine uygun ayar grubu bulunamadı.
-            </div>
-          )}
-        </div>
-
-        {/* Right Column: Active Setting Panel (8 Cols) */}
-        <div className="lg:col-span-8 space-y-4">
-          {/* Breadcrumb Banner */}
-          <div className="bg-[#161b22] border border-[#30363d] rounded-xl px-4 py-3 flex items-center justify-between text-xs font-mono shadow-sm">
-            <div className="flex items-center space-x-2 min-w-0">
-              <span className="text-gray-400 font-medium truncate">{currentGroup.title}</span>
-              <ChevronRight className="w-3.5 h-3.5 text-gray-500 shrink-0" />
-              <span className="text-orange-400 font-bold truncate flex items-center gap-1.5">
-                <currentItem.icon className="w-3.5 h-3.5 text-orange-400 shrink-0" />
-                <span>{currentItem.label}</span>
-              </span>
-            </div>
-            <span className="text-[10px] px-2 py-0.5 rounded font-bold bg-[#0d1117] text-gray-400 border border-[#30363d] shrink-0">
-              {currentGroup.badgeText}
-            </span>
-          </div>
 
           {/* ============================================================ */}
           {/* ALT GRUP 1: KURUMSAL & FİRMA TANIMLARI                       */}
@@ -1532,7 +1208,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
         </div>
-      </div>
 
       {/* SAFETY CONFIRMATION MODAL */}
       {confirmModal && confirmModal.isOpen && (

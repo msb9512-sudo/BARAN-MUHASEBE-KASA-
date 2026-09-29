@@ -1,29 +1,25 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React from 'react';
 import {
   ChevronLeft,
   ChevronRight,
   Menu,
-  Settings,
-  Sparkles,
-  ChevronRight as ChevronRightIcon,
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
 import { formatDateWithDayTR, addDays } from '../utils/formatters';
 import { TabType } from '../types';
 import { RestaurantProfile } from '../utils/storage';
-import { NAVIGATION_GROUPS, getGroupForTab } from '../components/Sidebar';
 
 interface NavbarProps {
-  activeTab: TabType;
-  setActiveTab: (tab: TabType) => void;
+  activeTab?: TabType;
+  setActiveTab?: (tab: TabType) => void;
   activeSettingsSection?: string;
   onSelectSettingsSection?: (section: string) => void;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onOpenBossReport: () => void;
-  onOpenVegaImport: () => void;
-  onOpenSettings: () => void;
+  onOpenVegaImport?: () => void;
+  onOpenSettings?: () => void;
   profile?: RestaurantProfile;
   onToggleMobileSidebar?: () => void;
   isSidebarCollapsed?: boolean;
@@ -31,24 +27,14 @@ interface NavbarProps {
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  activeTab,
-  setActiveTab,
-  activeSettingsSection,
-  onSelectSettingsSection,
   selectedDate,
   setSelectedDate,
   onOpenBossReport,
-  onOpenVegaImport,
-  onOpenSettings,
   profile,
   onToggleMobileSidebar,
   isSidebarCollapsed,
   onToggleSidebarCollapse,
 }) => {
-  const activeGroupId = getGroupForTab(activeTab);
-  const activeGroup =
-    NAVIGATION_GROUPS.find((g) => g.id === activeGroupId) || NAVIGATION_GROUPS[0];
-
   const getCompanyInitials = (str?: string) => {
     if (!str) return 'ŞK';
     const words = str.trim().split(/\s+/).filter(Boolean);
@@ -59,175 +45,6 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   const companyDisplayName = profile?.companyTitle || profile?.name || 'ŞİRKET ADI GİRİNİZ';
-
-  const subTabsContainerRef = useRef<HTMLDivElement>(null);
-  const [canScrollLeft, setCanScrollLeft] = useState(false);
-  const [canScrollRight, setCanScrollRight] = useState(false);
-
-  const checkScrollState = useCallback(() => {
-    const el = subTabsContainerRef.current;
-    if (!el) return;
-    setCanScrollLeft(el.scrollLeft > 6);
-    setCanScrollRight(el.scrollLeft + el.clientWidth < el.scrollWidth - 6);
-  }, []);
-
-  // Reset scroll and re-evaluate on group switch
-  useEffect(() => {
-    if (subTabsContainerRef.current) {
-      subTabsContainerRef.current.scrollLeft = 0;
-    }
-    checkScrollState();
-  }, [activeGroup.id, checkScrollState]);
-
-  // Listen to scroll events on container and window resize
-  useEffect(() => {
-    const el = subTabsContainerRef.current;
-    if (!el) return;
-    checkScrollState();
-    el.addEventListener('scroll', checkScrollState, { passive: true });
-    window.addEventListener('resize', checkScrollState);
-    return () => {
-      el.removeEventListener('scroll', checkScrollState);
-      window.removeEventListener('resize', checkScrollState);
-    };
-  }, [checkScrollState, activeGroup]);
-
-  // Support horizontal mouse wheel scroll over the subtabs bar
-  useEffect(() => {
-    const el = subTabsContainerRef.current;
-    if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (e.deltaY !== 0 && !e.shiftKey) {
-        e.preventDefault();
-        el.scrollLeft += e.deltaY;
-        checkScrollState();
-      }
-    };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => {
-      el.removeEventListener('wheel', onWheel);
-    };
-  }, [checkScrollState]);
-
-  const scrollTabs = (direction: 'left' | 'right') => {
-    const el = subTabsContainerRef.current;
-    if (!el) return;
-    const scrollAmount = direction === 'left' ? -220 : 220;
-    el.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-    setTimeout(checkScrollState, 320);
-  };
-
-  // Scroll logic when tab is clicked: if user clicked near edge, reveal the next neighbor tab ("bir yandaki")!
-  const handleSubTabClick = (sub: typeof activeGroup.subItems[0], index: number) => {
-    if (sub.subId && onSelectSettingsSection) {
-      onSelectSettingsSection(sub.subId);
-    }
-    setActiveTab(sub.id);
-
-    setTimeout(() => {
-      const container = subTabsContainerRef.current;
-      if (!container) return;
-
-      const nextItem = activeGroup.subItems[index + 1];
-      const prevItem = activeGroup.subItems[index - 1];
-
-      const getElemId = (item: typeof activeGroup.subItems[0]) =>
-        item.subId ? `subtab-${item.id}-${item.subId}` : `subtab-${item.id}`;
-
-      // If there is a next tab, ensure it is completely visible in view
-      if (nextItem) {
-        const nextEl = document.getElementById(getElemId(nextItem));
-        if (nextEl) {
-          const cRect = container.getBoundingClientRect();
-          const nRect = nextEl.getBoundingClientRect();
-          if (nRect.right > cRect.right - 24) {
-            const extra = nRect.right - cRect.right + 48;
-            container.scrollBy({ left: extra, behavior: 'smooth' });
-            setTimeout(checkScrollState, 320);
-            return;
-          }
-        }
-      }
-
-      // If moving backwards and previous tab is cut off on left
-      if (prevItem) {
-        const prevEl = document.getElementById(getElemId(prevItem));
-        if (prevEl) {
-          const cRect = container.getBoundingClientRect();
-          const pRect = prevEl.getBoundingClientRect();
-          if (pRect.left < cRect.left + 24) {
-            const extra = pRect.left - cRect.left - 48;
-            container.scrollBy({ left: extra, behavior: 'smooth' });
-            setTimeout(checkScrollState, 320);
-            return;
-          }
-        }
-      }
-
-      const activeEl = document.getElementById(getElemId(sub));
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-      }
-      setTimeout(checkScrollState, 320);
-    }, 40);
-  };
-
-  // When activeTab or activeSettingsSection changes, auto-scroll to reveal active & neighbor
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const container = subTabsContainerRef.current;
-      if (!container) return;
-
-      const idx = activeGroup.subItems.findIndex((s) => {
-        if (s.subId) {
-          return s.id === activeTab && s.subId === activeSettingsSection;
-        }
-        return s.id === activeTab;
-      });
-      if (idx === -1) return;
-
-      const currentItem = activeGroup.subItems[idx];
-      const nextItem = activeGroup.subItems[idx + 1];
-      const prevItem = activeGroup.subItems[idx - 1];
-
-      const getElemId = (item: typeof activeGroup.subItems[0]) =>
-        item.subId ? `subtab-${item.id}-${item.subId}` : `subtab-${item.id}`;
-
-      if (nextItem) {
-        const nextEl = document.getElementById(getElemId(nextItem));
-        if (nextEl) {
-          const cRect = container.getBoundingClientRect();
-          const nRect = nextEl.getBoundingClientRect();
-          if (nRect.right > cRect.right - 24) {
-            container.scrollBy({ left: nRect.right - cRect.right + 48, behavior: 'smooth' });
-            setTimeout(checkScrollState, 320);
-            return;
-          }
-        }
-      }
-
-      if (prevItem) {
-        const prevEl = document.getElementById(getElemId(prevItem));
-        if (prevEl) {
-          const cRect = container.getBoundingClientRect();
-          const pRect = prevEl.getBoundingClientRect();
-          if (pRect.left < cRect.left + 24) {
-            container.scrollBy({ left: pRect.left - cRect.left - 48, behavior: 'smooth' });
-            setTimeout(checkScrollState, 320);
-            return;
-          }
-        }
-      }
-
-      const activeEl = document.getElementById(getElemId(currentItem));
-      if (activeEl) {
-        activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-      }
-      setTimeout(checkScrollState, 320);
-    }, 60);
-
-    return () => clearTimeout(timer);
-  }, [activeTab, activeSettingsSection, activeGroup, checkScrollState]);
 
   return (
     <header className="bg-[#161b22] border-b border-[#30363d] text-gray-200 sticky top-0 z-40 shadow-xl">
@@ -331,96 +148,6 @@ export const Navbar: React.FC<NavbarProps> = ({
           </div>
         </div>
       </div>
-
-      {/* Secondary Sub-Tabs Bar (Shows Sub-Items of Current Active Group at the Top) */}
-      <div className="border-t border-[#30363d] bg-[#0d1117]">
-        <div className="w-full px-3 sm:px-6 lg:px-8 flex items-center justify-between py-1.5 gap-2">
-          <div className="flex items-center space-x-1 sm:space-x-2 min-w-0 flex-1">
-            {/* Active Group Indicator Badge */}
-            <div className="flex items-center space-x-1 px-2.5 py-1 rounded bg-[#161b22] border border-[#30363d] text-[11px] font-mono font-bold text-orange-400 shrink-0 select-none">
-              <span>{activeGroup.label}</span>
-              <ChevronRightIcon className="w-3 h-3 text-gray-500" />
-            </div>
-
-            {/* Scrollable Sub-Tabs Container with Left/Right Scroll Arrows */}
-            <div className="relative flex items-center min-w-0 flex-1">
-              {/* Left Arrow Button (shows when scrolled right) */}
-              {canScrollLeft && (
-                <button
-                  type="button"
-                  onClick={() => scrollTabs('left')}
-                  className="mr-1 p-1 bg-[#21262d] hover:bg-[#30363d] border border-[#30363d] rounded-md text-gray-300 hover:text-white transition cursor-pointer shrink-0 z-10 shadow-sm"
-                  title="Önceki sekmelere kaydır"
-                >
-                  <ChevronLeft className="w-3.5 h-3.5" />
-                </button>
-              )}
-
-              {/* Sub-Tabs for Active Group */}
-              <div
-                ref={subTabsContainerRef}
-                className="flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth py-0.5 min-w-0 flex-1"
-              >
-                {activeGroup.subItems.map((sub, idx) => {
-                  const itemKey = sub.subId ? `${sub.id}-${sub.subId}` : sub.id;
-                  const isActive = sub.subId
-                    ? activeTab === sub.id && (!activeSettingsSection || activeSettingsSection === sub.subId)
-                    : activeTab === sub.id;
-                  const SubIcon = sub.icon;
-                  return (
-                    <button
-                      key={itemKey}
-                      id={`subtab-${itemKey}`}
-                      onClick={() => handleSubTabClick(sub, idx)}
-                      className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition cursor-pointer shrink-0 ${
-                        isActive
-                          ? 'bg-orange-500 text-white font-bold shadow-sm shadow-orange-500/20'
-                          : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d] border border-transparent'
-                      }`}
-                    >
-                      <SubIcon className={`w-3.5 h-3.5 ${isActive ? 'text-white' : 'text-gray-400'}`} />
-                      <span>{sub.label}</span>
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* Right Arrow Button (shows when more tabs are available to the right) */}
-              {canScrollRight && (
-                <button
-                  type="button"
-                  onClick={() => scrollTabs('right')}
-                  className="ml-1 p-1 bg-[#21262d] hover:bg-orange-500/20 border border-orange-500/40 rounded-md text-orange-400 hover:text-orange-300 transition cursor-pointer shrink-0 z-10 shadow-sm animate-pulse"
-                  title="Sonraki sekmelere kaydır"
-                >
-                  <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              )}
-            </div>
-          </div>
-
-          {/* Quick Group Switcher Pills on Right for Convenience */}
-          <div className="hidden xl:flex items-center space-x-1 pl-4 border-l border-[#30363d] shrink-0">
-            {NAVIGATION_GROUPS.map((g) => {
-              const isCurr = activeGroupId === g.id;
-              return (
-                <button
-                  key={g.id}
-                  onClick={() => setActiveTab(g.defaultTab)}
-                  className={`text-[11px] font-mono px-2 py-0.5 rounded transition cursor-pointer ${
-                    isCurr
-                      ? 'text-orange-400 font-bold bg-orange-500/10 border border-orange-500/30'
-                      : 'text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  {g.shortLabel || g.label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </div>
     </header>
   );
 };
-
