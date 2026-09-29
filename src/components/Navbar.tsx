@@ -17,6 +17,8 @@ import { NAVIGATION_GROUPS, getGroupForTab } from '../components/Sidebar';
 interface NavbarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  activeSettingsSection?: string;
+  onSelectSettingsSection?: (section: string) => void;
   selectedDate: string;
   setSelectedDate: (date: string) => void;
   onOpenBossReport: () => void;
@@ -31,6 +33,8 @@ interface NavbarProps {
 export const Navbar: React.FC<NavbarProps> = ({
   activeTab,
   setActiveTab,
+  activeSettingsSection,
+  onSelectSettingsSection,
   selectedDate,
   setSelectedDate,
   onOpenBossReport,
@@ -43,31 +47,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const activeGroupId = getGroupForTab(activeTab);
   const activeGroup =
-    NAVIGATION_GROUPS.find((g) => g.id === activeGroupId) ||
-    (activeTab === 'settings' || activeTab === 'workspace'
-      ? {
-          id: 'system' as const,
-          label: 'Sistem & Ayarlar',
-          shortLabel: 'Ayarlar',
-          icon: Settings,
-          description: 'Sistem ayarları ve Bulut',
-          defaultTab: 'settings' as const,
-          subItems: [
-            {
-              id: 'settings' as const,
-              label: 'Ayarlar',
-              shortLabel: 'Ayarlar',
-              icon: Settings,
-            },
-            {
-              id: 'workspace' as const,
-              label: 'Bulut',
-              shortLabel: 'Bulut',
-              icon: Sparkles,
-            },
-          ],
-        }
-      : NAVIGATION_GROUPS[0]);
+    NAVIGATION_GROUPS.find((g) => g.id === activeGroupId) || NAVIGATION_GROUPS[0];
 
   const getCompanyInitials = (str?: string) => {
     if (!str) return 'ŞK';
@@ -138,8 +118,11 @@ export const Navbar: React.FC<NavbarProps> = ({
   };
 
   // Scroll logic when tab is clicked: if user clicked near edge, reveal the next neighbor tab ("bir yandaki")!
-  const handleSubTabClick = (subId: TabType, index: number) => {
-    setActiveTab(subId);
+  const handleSubTabClick = (sub: typeof activeGroup.subItems[0], index: number) => {
+    if (sub.subId && onSelectSettingsSection) {
+      onSelectSettingsSection(sub.subId);
+    }
+    setActiveTab(sub.id);
 
     setTimeout(() => {
       const container = subTabsContainerRef.current;
@@ -148,9 +131,12 @@ export const Navbar: React.FC<NavbarProps> = ({
       const nextItem = activeGroup.subItems[index + 1];
       const prevItem = activeGroup.subItems[index - 1];
 
+      const getElemId = (item: typeof activeGroup.subItems[0]) =>
+        item.subId ? `subtab-${item.id}-${item.subId}` : `subtab-${item.id}`;
+
       // If there is a next tab, ensure it is completely visible in view
       if (nextItem) {
-        const nextEl = document.getElementById(`subtab-${nextItem.id}`);
+        const nextEl = document.getElementById(getElemId(nextItem));
         if (nextEl) {
           const cRect = container.getBoundingClientRect();
           const nRect = nextEl.getBoundingClientRect();
@@ -165,7 +151,7 @@ export const Navbar: React.FC<NavbarProps> = ({
 
       // If moving backwards and previous tab is cut off on left
       if (prevItem) {
-        const prevEl = document.getElementById(`subtab-${prevItem.id}`);
+        const prevEl = document.getElementById(getElemId(prevItem));
         if (prevEl) {
           const cRect = container.getBoundingClientRect();
           const pRect = prevEl.getBoundingClientRect();
@@ -178,7 +164,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         }
       }
 
-      const activeEl = document.getElementById(`subtab-${subId}`);
+      const activeEl = document.getElementById(getElemId(sub));
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
       }
@@ -186,20 +172,29 @@ export const Navbar: React.FC<NavbarProps> = ({
     }, 40);
   };
 
-  // When activeTab changes (e.g. from page navigation or shortcut), auto-scroll to reveal active & neighbor
+  // When activeTab or activeSettingsSection changes, auto-scroll to reveal active & neighbor
   useEffect(() => {
     const timer = setTimeout(() => {
       const container = subTabsContainerRef.current;
       if (!container) return;
 
-      const idx = activeGroup.subItems.findIndex((s) => s.id === activeTab);
+      const idx = activeGroup.subItems.findIndex((s) => {
+        if (s.subId) {
+          return s.id === activeTab && s.subId === activeSettingsSection;
+        }
+        return s.id === activeTab;
+      });
       if (idx === -1) return;
 
+      const currentItem = activeGroup.subItems[idx];
       const nextItem = activeGroup.subItems[idx + 1];
       const prevItem = activeGroup.subItems[idx - 1];
 
+      const getElemId = (item: typeof activeGroup.subItems[0]) =>
+        item.subId ? `subtab-${item.id}-${item.subId}` : `subtab-${item.id}`;
+
       if (nextItem) {
-        const nextEl = document.getElementById(`subtab-${nextItem.id}`);
+        const nextEl = document.getElementById(getElemId(nextItem));
         if (nextEl) {
           const cRect = container.getBoundingClientRect();
           const nRect = nextEl.getBoundingClientRect();
@@ -212,7 +207,7 @@ export const Navbar: React.FC<NavbarProps> = ({
       }
 
       if (prevItem) {
-        const prevEl = document.getElementById(`subtab-${prevItem.id}`);
+        const prevEl = document.getElementById(getElemId(prevItem));
         if (prevEl) {
           const cRect = container.getBoundingClientRect();
           const pRect = prevEl.getBoundingClientRect();
@@ -224,7 +219,7 @@ export const Navbar: React.FC<NavbarProps> = ({
         }
       }
 
-      const activeEl = document.getElementById(`subtab-${activeTab}`);
+      const activeEl = document.getElementById(getElemId(currentItem));
       if (activeEl) {
         activeEl.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
       }
@@ -232,7 +227,7 @@ export const Navbar: React.FC<NavbarProps> = ({
     }, 60);
 
     return () => clearTimeout(timer);
-  }, [activeTab, activeGroup, checkScrollState]);
+  }, [activeTab, activeSettingsSection, activeGroup, checkScrollState]);
 
   return (
     <header className="bg-[#161b22] border-b border-[#30363d] text-gray-200 sticky top-0 z-40 shadow-xl">
@@ -367,13 +362,16 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="flex items-center space-x-1 overflow-x-auto no-scrollbar scroll-smooth py-0.5 min-w-0 flex-1"
               >
                 {activeGroup.subItems.map((sub, idx) => {
-                  const isActive = activeTab === sub.id;
+                  const itemKey = sub.subId ? `${sub.id}-${sub.subId}` : sub.id;
+                  const isActive = sub.subId
+                    ? activeTab === sub.id && (!activeSettingsSection || activeSettingsSection === sub.subId)
+                    : activeTab === sub.id;
                   const SubIcon = sub.icon;
                   return (
                     <button
-                      key={sub.id}
-                      id={`subtab-${sub.id}`}
-                      onClick={() => handleSubTabClick(sub.id, idx)}
+                      key={itemKey}
+                      id={`subtab-${itemKey}`}
+                      onClick={() => handleSubTabClick(sub, idx)}
                       className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg text-xs font-mono font-medium whitespace-nowrap transition cursor-pointer shrink-0 ${
                         isActive
                           ? 'bg-orange-500 text-white font-bold shadow-sm shadow-orange-500/20'

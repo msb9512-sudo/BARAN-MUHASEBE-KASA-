@@ -38,7 +38,7 @@ import { BossReportModal } from './components/BossReportModal';
 import { VegaImportModal } from './components/VegaImportModal';
 import { OpenAccountPromptModal } from './components/OpenAccountPromptModal';
 import { SettingsModal } from './components/SettingsModal';
-import { SettingsView } from './components/SettingsView';
+import { SettingsView, SettingsSectionId } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { Sidebar } from './components/Sidebar';
 import { getTodayIsoDate } from './utils/formatters';
@@ -88,6 +88,7 @@ export function App() {
   const [isBossReportOpen, setIsBossReportOpen] = useState(false);
   const [isVegaImportOpen, setIsVegaImportOpen] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [activeSettingsSection, setActiveSettingsSection] = useState<SettingsSectionId>('kase');
 
   // Open Account prompt modal state
   const [isOpenAccountPromptOpen, setIsOpenAccountPromptOpen] = useState(false);
@@ -429,6 +430,11 @@ export function App() {
       <Navbar
         activeTab={activeTab}
         setActiveTab={setActiveTab}
+        activeSettingsSection={activeSettingsSection}
+        onSelectSettingsSection={(sec) => {
+          setActiveSettingsSection(sec as SettingsSectionId);
+          setActiveTab('settings');
+        }}
         selectedDate={selectedDate}
         setSelectedDate={(date) => {
           setSelectedDate(date);
@@ -449,6 +455,11 @@ export function App() {
         <Sidebar
           activeTab={activeTab}
           setActiveTab={setActiveTab}
+          activeSettingsSection={activeSettingsSection}
+          onSelectSettingsSection={(sec) => {
+            setActiveSettingsSection(sec as SettingsSectionId);
+            setActiveTab('settings');
+          }}
           onOpenBossReport={() => setIsBossReportOpen(true)}
           onOpenVegaImport={() => setIsVegaImportOpen(true)}
           onOpenSettings={() => setIsSettingsOpen(true)}
@@ -626,6 +637,9 @@ export function App() {
               selectedDate={selectedDate}
               onResetAllFinancialData={handleResetAllFinancialData}
               onResetSingleDay={handleResetSingleDay}
+              activeSection={activeSettingsSection}
+              onSectionChange={setActiveSettingsSection}
+              onNavigate={(tab) => setActiveTab(tab)}
             />
           )}
         </main>

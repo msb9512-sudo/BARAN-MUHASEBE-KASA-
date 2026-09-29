@@ -234,67 +234,97 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
           </button>
         </div>
 
-        {/* Tab Selection */}
-        <div className="flex items-center space-x-2 border-b border-[#30363d] pb-2 text-xs font-mono font-semibold">
-          <button
-            onClick={() => setActiveTab('profile')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-              activeTab === 'profile'
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
-            }`}
-          >
-            <Stamp className="w-3.5 h-3.5" />
-            <span>Şirket Adı & Kaşe</span>
-          </button>
+        {/* Tab Selection with Sub-groups */}
+        <div className="space-y-2 border-b border-[#30363d] pb-3">
+          <div className="flex items-center justify-between text-[11px] font-mono text-gray-400">
+            <span className="font-bold text-orange-400 uppercase tracking-wider">Ayar Alt Grupları:</span>
+            <span>3 Alt Grup / 5 Modül</span>
+          </div>
 
-          <button
-            onClick={() => setActiveTab('pos')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-              activeTab === 'pos'
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
-            }`}
-          >
-            <CreditCard className="w-3.5 h-3.5" />
-            <span>POS Cihazları ({devicesList.length})</span>
-          </button>
+          <div className="flex flex-wrap gap-2 text-xs font-mono font-semibold">
+            {/* Alt Grup 1: Kurumsal Tanımlar */}
+            <div className="flex items-center space-x-1 p-1 bg-[#0d1117] rounded-xl border border-[#30363d]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 px-2 select-none border-r border-[#30363d] mr-1">
+                1. Kurumsal
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('profile')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
+                  activeTab === 'profile'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+                }`}
+              >
+                <Stamp className="w-3.5 h-3.5" />
+                <span>Kaşe & Şirket</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab('categories')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-              activeTab === 'categories'
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
-            }`}
-          >
-            <Tag className="w-3.5 h-3.5" />
-            <span>Gider Kategorileri ({categoriesList.length})</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('pos')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
+                  activeTab === 'pos'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+                }`}
+              >
+                <CreditCard className="w-3.5 h-3.5" />
+                <span>POS ({devicesList.length})</span>
+              </button>
 
-          <button
-            onClick={() => setActiveTab('appearance')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-              activeTab === 'appearance'
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
-            }`}
-          >
-            <Palette className="w-3.5 h-3.5" />
-            <span>Tema & Font</span>
-          </button>
+              <button
+                type="button"
+                onClick={() => setActiveTab('categories')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
+                  activeTab === 'categories'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+                }`}
+              >
+                <Tag className="w-3.5 h-3.5" />
+                <span>Giderler ({categoriesList.length})</span>
+              </button>
+            </div>
 
-          <button
-            onClick={() => setActiveTab('system')}
-            className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-lg transition cursor-pointer ${
-              activeTab === 'system'
-                ? 'bg-orange-600 text-white shadow-sm'
-                : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
-            }`}
-          >
-            <RotateCcw className="w-3.5 h-3.5" />
-            <span>Veri & Sıfırlama</span>
-          </button>
+            {/* Alt Grup 2: Arayüz */}
+            <div className="flex items-center space-x-1 p-1 bg-[#0d1117] rounded-xl border border-[#30363d]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 px-2 select-none border-r border-[#30363d] mr-1">
+                2. Arayüz
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('appearance')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
+                  activeTab === 'appearance'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+                }`}
+              >
+                <Palette className="w-3.5 h-3.5" />
+                <span>Tema & Font</span>
+              </button>
+            </div>
+
+            {/* Alt Grup 3: Veri & Sistem */}
+            <div className="flex items-center space-x-1 p-1 bg-[#0d1117] rounded-xl border border-[#30363d]">
+              <span className="text-[10px] uppercase font-bold text-gray-400 px-2 select-none border-r border-[#30363d] mr-1">
+                3. Sistem
+              </span>
+              <button
+                type="button"
+                onClick={() => setActiveTab('system')}
+                className={`flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg transition cursor-pointer ${
+                  activeTab === 'system'
+                    ? 'bg-orange-600 text-white shadow-sm'
+                    : 'text-gray-400 hover:bg-[#21262d] hover:text-white'
+                }`}
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>Veri Sıfırlama</span>
+              </button>
+            </div>
+          </div>
         </div>
 
         {/* Tab 1: Profile & Kaşe */}

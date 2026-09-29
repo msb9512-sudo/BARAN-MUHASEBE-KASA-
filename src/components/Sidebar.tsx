@@ -19,20 +19,159 @@ import {
   UserCheck,
   Wallet,
   Landmark,
+  Stamp,
+  CreditCard,
+  Tag,
+  Palette,
+  RotateCcw,
+  Sparkles,
+  Building2,
+  ShieldAlert,
+  ChevronDown,
+  ChevronUp,
+  RefreshCw,
 } from 'lucide-react';
 import { TabType } from '../types';
 import { RestaurantProfile } from '../utils/storage';
 
-export type NavGroupId = 'main' | 'cashier' | 'accounts' | 'cariler' | 'reports';
+export type NavGroupId = 'main' | 'cashier' | 'accounts' | 'cariler' | 'reports' | 'system';
 
 export interface NavSubItem {
   id: TabType;
+  subId?: string;
   label: string;
   shortLabel?: string;
   icon: React.ComponentType<{ className?: string }>;
   badge?: string;
   description?: string;
 }
+
+export interface SettingsSubGroupItem {
+  id: TabType;
+  subId: string;
+  label: string;
+  shortLabel: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+  description?: string;
+}
+
+export interface SettingsSubGroupNav {
+  id: string;
+  title: string;
+  shortTitle: string;
+  icon: React.ComponentType<{ className?: string }>;
+  badge?: string;
+  defaultSubId: string;
+  items: SettingsSubGroupItem[];
+}
+
+export const SETTINGS_SUB_GROUPS: SettingsSubGroupNav[] = [
+  {
+    id: 'corporate',
+    title: '1. Kurumsal & Firma Tanımları',
+    shortTitle: 'Kurumsal Tanımlar',
+    icon: Building2,
+    badge: '3',
+    defaultSubId: 'kase',
+    items: [
+      {
+        id: 'settings',
+        subId: 'kase',
+        label: 'Şirket Ünvanı & Kaşe',
+        shortLabel: 'Firma & Kaşe',
+        icon: Stamp,
+        description: 'Resmi ünvan, VKN, adres ve mühür',
+      },
+      {
+        id: 'settings',
+        subId: 'pos',
+        label: 'Banka POS Cihazları',
+        shortLabel: 'POS Cihazları',
+        icon: CreditCard,
+        description: 'Terminal Z raporu cihaz tanımları',
+      },
+      {
+        id: 'settings',
+        subId: 'categories',
+        label: 'Gider & Masraf Kategorileri',
+        shortLabel: 'Giderler',
+        icon: Tag,
+        description: 'Kasa harcaması etiketleri',
+      },
+    ],
+  },
+  {
+    id: 'ui',
+    title: '2. Arayüz & Görünüm',
+    shortTitle: 'Arayüz & Tema',
+    icon: Palette,
+    badge: '1',
+    defaultSubId: 'appearance',
+    items: [
+      {
+        id: 'settings',
+        subId: 'appearance',
+        label: 'Görünüm, Tema & Font',
+        shortLabel: 'Tema & Font',
+        icon: Palette,
+        description: 'Koyu/açık tema, font ve renkler',
+      },
+    ],
+  },
+  {
+    id: 'maintenance',
+    title: '3. Veri Yönetimi & Bakım',
+    shortTitle: 'Sistem & Bakım',
+    icon: ShieldAlert,
+    badge: '3',
+    defaultSubId: 'system_day',
+    items: [
+      {
+        id: 'settings',
+        subId: 'system_day',
+        label: 'Gün Gün Sıfırlama (Seçili Gün)',
+        shortLabel: 'Günlük Sıfırlama',
+        icon: Calendar,
+        description: 'Seçili bir günün kayıtlarını temizle',
+      },
+      {
+        id: 'settings',
+        subId: 'system_bulk',
+        label: 'Temiz Kurulum & Fabrika Sıfırla',
+        shortLabel: 'Fabrika Sıfırlama',
+        icon: RotateCcw,
+        description: 'Tüm hareketleri sil veya fabrika ayarları',
+      },
+      {
+        id: 'settings',
+        subId: 'update',
+        label: 'Yazılım Güncelleme',
+        shortLabel: 'Yazılım Güncelle',
+        icon: RefreshCw,
+        description: 'GitHub sürüm kontrolü ve güncelleme',
+      },
+    ],
+  },
+  {
+    id: 'cloud',
+    title: '4. Bulut & Google Drive',
+    shortTitle: 'Bulut & Yedekleme',
+    icon: Sparkles,
+    badge: 'Bulut',
+    defaultSubId: 'cloud',
+    items: [
+      {
+        id: 'workspace',
+        subId: 'cloud',
+        label: 'Google Workspace & E-Tablolar',
+        shortLabel: 'Google Bulut',
+        icon: Cloud,
+        description: 'Drive yedekleme ve Sheets senkronizasyonu',
+      },
+    ],
+  },
+];
 
 export interface NavGroup {
   id: NavGroupId;
@@ -165,9 +304,82 @@ export const NAVIGATION_GROUPS: NavGroup[] = [
       },
     ],
   },
+  {
+    id: 'system',
+    label: 'Sistem & Ayarlar',
+    shortLabel: 'Ayarlar',
+    icon: Settings,
+    description: 'Şirket, POS, Tema ve Veri Bakımı',
+    defaultTab: 'settings',
+    subItems: [
+      {
+        id: 'settings',
+        subId: 'kase',
+        label: '1. Şirket & Kaşe',
+        shortLabel: 'Şirket & Kaşe',
+        icon: Stamp,
+        description: 'Resmi ünvan, VKN, adres ve mühür',
+      },
+      {
+        id: 'settings',
+        subId: 'pos',
+        label: '2. POS Cihazları',
+        shortLabel: 'POS Cihazları',
+        icon: CreditCard,
+        description: 'Terminal Z raporu cihaz tanımları',
+      },
+      {
+        id: 'settings',
+        subId: 'categories',
+        label: '3. Gider Kategorileri',
+        shortLabel: 'Gider Grupları',
+        icon: Tag,
+        description: 'Kasa harcaması sınıflandırma etiketleri',
+      },
+      {
+        id: 'settings',
+        subId: 'appearance',
+        label: '4. Görünüm & Tema',
+        shortLabel: 'Tema & Renk',
+        icon: Palette,
+        description: 'Koyu/açık mod, font ailesi ve renkler',
+      },
+      {
+        id: 'settings',
+        subId: 'system_day',
+        label: '5. Günlük Sıfırlama',
+        shortLabel: 'Günlük Sıfırlama',
+        icon: Calendar,
+        description: 'Seçili bir günün kayıtlarını sıfırlama',
+      },
+      {
+        id: 'settings',
+        subId: 'system_bulk',
+        label: '6. Fabrika Sıfırlaması',
+        shortLabel: 'Toplu Sıfırlama',
+        icon: RotateCcw,
+        description: 'Tüm hareketleri sil veya fabrika ayarları',
+      },
+      {
+        id: 'settings',
+        subId: 'update',
+        label: '7. Yazılım Güncelleme',
+        shortLabel: 'Güncelleme',
+        icon: RefreshCw,
+        description: 'GitHub sürüm kontrolü ve güncelleme',
+      },
+      {
+        id: 'workspace',
+        label: '8. Google Bulut (Drive)',
+        shortLabel: 'Google Bulut',
+        icon: Sparkles,
+        description: 'Google Drive & E-Tablolar senkronizasyonu',
+      },
+    ],
+  },
 ];
 
-export function getGroupForTab(tab: TabType): NavGroupId | 'system' {
+export function getGroupForTab(tab: TabType): NavGroupId {
   if (tab === 'workspace' || tab === 'settings') {
     return 'system';
   }
@@ -182,6 +394,8 @@ export function getGroupForTab(tab: TabType): NavGroupId | 'system' {
 interface SidebarProps {
   activeTab: TabType;
   setActiveTab: (tab: TabType) => void;
+  activeSettingsSection?: string;
+  onSelectSettingsSection?: (section: string) => void;
   onOpenBossReport: () => void;
   onOpenVegaImport: () => void;
   onOpenSettings: () => void;
@@ -195,6 +409,8 @@ interface SidebarProps {
 export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
+  activeSettingsSection,
+  onSelectSettingsSection,
   onOpenBossReport,
   onOpenVegaImport,
   onOpenSettings,
@@ -211,6 +427,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return { [activeGroupId]: true };
   });
 
+  // Track expanded/collapsed state for Settings sub-groups (Kurumsal, Görünüm, Bakım, Bulut)
+  const [expandedSettingsSubGroups, setExpandedSettingsSubGroups] = useState<Record<string, boolean>>(() => {
+    return {
+      corporate: true,
+      ui: true,
+      maintenance: false,
+      cloud: false,
+    };
+  });
+
   // Ensure active group is expanded when activeTab changes
   useEffect(() => {
     setExpandedGroups((prev) => ({
@@ -218,6 +444,29 @@ export const Sidebar: React.FC<SidebarProps> = ({
       [activeGroupId]: true,
     }));
   }, [activeGroupId]);
+
+  // Ensure active settings sub-group is expanded when tab or settings section changes
+  useEffect(() => {
+    if (activeTab === 'settings' || activeTab === 'workspace') {
+      const activeSec = activeSettingsSection || 'kase';
+      for (const sg of SETTINGS_SUB_GROUPS) {
+        if (sg.items.some((it) => it.id === activeTab && (!it.subId || it.subId === activeSec))) {
+          setExpandedSettingsSubGroups((prev) => ({
+            ...prev,
+            [sg.id]: true,
+          }));
+          break;
+        }
+      }
+    }
+  }, [activeTab, activeSettingsSection]);
+
+  const toggleSettingsSubGroup = (subGroupId: string) => {
+    setExpandedSettingsSubGroups((prev) => ({
+      ...prev,
+      [subGroupId]: !prev[subGroupId],
+    }));
+  };
 
   const handleGroupClick = (group: NavGroup) => {
     const isGroupActive = activeGroupId === group.id;
@@ -299,7 +548,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           Ana Gruplar
         </div>
 
-        {NAVIGATION_GROUPS.map((group) => {
+        {NAVIGATION_GROUPS.filter((g) => g.id !== 'system').map((group) => {
           const isGroupActive = activeGroupId === group.id;
           const GroupIcon = group.icon;
           const subCount = group.subItems.length;
@@ -365,13 +614,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {group.subItems.length > 1 && isExpanded && (
                 <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-orange-500/30 ml-4.5 my-1 transition-all duration-200">
                   {group.subItems.map((sub) => {
-                    const isSubActive = activeTab === sub.id;
+                    const itemKey = sub.subId ? `${sub.id}-${sub.subId}` : sub.id;
+                    const isSubActive = sub.subId
+                      ? activeTab === sub.id && (!activeSettingsSection || activeSettingsSection === sub.subId)
+                      : activeTab === sub.id;
                     const SubIcon = sub.icon;
                     return (
                       <button
-                        key={sub.id}
-                        id={`sidebar-subitem-${sub.id}`}
+                        key={itemKey}
+                        id={`sidebar-subitem-${itemKey}`}
                         onClick={() => {
+                          if (sub.subId && onSelectSettingsSection) {
+                            onSelectSettingsSection(sub.subId);
+                          }
                           setActiveTab(sub.id);
                           onCloseMobile();
                         }}
@@ -394,54 +649,163 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       {/* Settings & Integration Dock at bottom of Sidebar */}
-      <div className="p-3 border-t border-[#30363d] space-y-1.5 bg-[#0d1117]">
-        <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 font-mono mb-1">
-          Sistem & Ayarlar
+      <div className="p-3 border-t border-[#30363d] space-y-2 bg-[#0d1117] overflow-y-auto max-h-[50vh] no-scrollbar">
+        <div className="px-1 text-[10px] font-bold uppercase tracking-wider text-gray-400 font-mono mb-1 flex items-center justify-between">
+          <span>Sistem & Ayarlar</span>
+          <span className="text-[9px] text-orange-400/80 font-mono">({SETTINGS_SUB_GROUPS.length} Alt Menü)</span>
         </div>
 
-        {/* Settings Button */}
+        {/* Preferred Sistem & Ayarlar Main Header Button */}
         <button
-          id="btn-sidebar-settings"
+          id="nav-group-system"
           onClick={() => {
-            setActiveTab('settings');
-            onCloseMobile();
+            const isCurrentlyExpanded =
+              expandedGroups['system'] !== undefined
+                ? expandedGroups['system']
+                : (activeTab === 'settings' || activeTab === 'workspace');
+            setExpandedGroups((prev) => ({
+              ...prev,
+              system: !isCurrentlyExpanded,
+            }));
+            if (activeTab !== 'settings' && activeTab !== 'workspace') {
+              setActiveTab('settings');
+            }
           }}
-          className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-mono transition cursor-pointer border ${
-            isSettingsActive
-              ? 'bg-orange-500/20 text-orange-300 font-bold border-orange-500/50 shadow-sm'
-              : 'bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white border-[#30363d]'
+          className={`w-full text-left p-2.5 rounded-xl transition flex items-center justify-between group cursor-pointer border ${
+            activeTab === 'settings' || activeTab === 'workspace'
+              ? 'bg-orange-500/15 border-orange-500/50 text-white shadow-sm'
+              : 'bg-[#161b22] hover:bg-[#21262d] border-[#30363d] text-gray-200 hover:text-white'
           }`}
+          title="Sistem & Ayarlar menüsünü aç / kapat"
         >
-          <div className="flex items-center space-x-2.5 min-w-0">
-            <div className={`p-1.5 rounded-lg shrink-0 ${isSettingsActive ? 'bg-orange-500 text-white' : 'bg-[#21262d] text-gray-400'}`}>
-              <Settings className="w-4 h-4" />
+          <div className="flex items-center space-x-3 min-w-0">
+            <div
+              className={`w-9 h-9 rounded-lg flex items-center justify-center transition shrink-0 ${
+                activeTab === 'settings' || activeTab === 'workspace'
+                  ? 'bg-orange-500 text-white font-bold shadow-md shadow-orange-500/25'
+                  : 'bg-[#21262d] text-gray-400 group-hover:text-orange-400 group-hover:bg-[#30363d]'
+              }`}
+            >
+              <Settings className="w-5 h-5" />
             </div>
-            <span className="font-semibold text-xs truncate">Ayarlar</span>
+            <div className="min-w-0">
+              <div className="flex items-center space-x-1.5">
+                <span className="font-semibold text-xs text-white truncate">
+                  Sistem & Ayarlar
+                </span>
+              </div>
+              <p className="text-[11px] text-gray-400 font-mono truncate">
+                Şirket, POS, Tema ve Veri Bakımı
+              </p>
+            </div>
           </div>
-          <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${isSettingsActive ? 'text-orange-400' : 'text-gray-500'}`} />
+
+          <div className="flex items-center space-x-1 pl-1 shrink-0">
+            <span
+              className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-semibold ${
+                activeTab === 'settings' || activeTab === 'workspace'
+                  ? 'bg-orange-500/20 text-orange-300'
+                  : 'bg-[#21262d] text-gray-400'
+              }`}
+            >
+              {SETTINGS_SUB_GROUPS.length}
+            </span>
+            <ChevronRight
+              className={`w-4 h-4 transition-transform duration-200 ${
+                activeTab === 'settings' || activeTab === 'workspace'
+                  ? 'text-orange-400'
+                  : 'text-gray-500 group-hover:text-gray-300'
+              } ${(expandedGroups['system'] !== undefined ? expandedGroups['system'] : (activeTab === 'settings' || activeTab === 'workspace')) ? 'rotate-90 text-orange-400' : ''}`}
+            />
+          </div>
         </button>
 
-        {/* Google Drive / Sheets Cloud Sync Button */}
-        <button
-          id="btn-sidebar-workspace"
-          onClick={() => {
-            setActiveTab('workspace');
-            onCloseMobile();
-          }}
-          className={`w-full flex items-center justify-between p-2.5 rounded-xl text-xs font-mono transition cursor-pointer border ${
-            isWorkspaceActive
-              ? 'bg-orange-500/20 text-orange-300 font-bold border-orange-500/50 shadow-sm'
-              : 'bg-[#161b22] hover:bg-[#21262d] text-gray-300 hover:text-white border-[#30363d]'
-          }`}
-        >
-          <div className="flex items-center space-x-2.5 min-w-0">
-            <div className={`p-1.5 rounded-lg shrink-0 ${isWorkspaceActive ? 'bg-orange-500 text-white' : 'bg-[#21262d] text-gray-400'}`}>
-              <Cloud className="w-4 h-4" />
-            </div>
-            <span className="font-semibold text-xs truncate">Bulut</span>
+        {/* Sub-menus with Accordion when Sistem & Ayarlar is expanded */}
+        {(expandedGroups['system'] !== undefined ? expandedGroups['system'] : (activeTab === 'settings' || activeTab === 'workspace')) && (
+          <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-orange-500/30 ml-4.5 my-1 transition-all duration-200">
+            {SETTINGS_SUB_GROUPS.map((subGroup) => {
+              const isSubGroupExpanded = expandedSettingsSubGroups[subGroup.id] ?? false;
+              const SubGroupIcon = subGroup.icon;
+              const isChildActive = subGroup.items.some(
+                (it) => it.id === activeTab && (!activeSettingsSection || activeSettingsSection === it.subId)
+              );
+
+              return (
+                <div key={subGroup.id} className="space-y-1">
+                  {/* Sub-Menu Header Button: Uses exact Kasa İşlemleri styling & font */}
+                  <button
+                    type="button"
+                    id={`btn-subgroup-${subGroup.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleSettingsSubGroup(subGroup.id);
+                    }}
+                    className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono transition flex items-center justify-between cursor-pointer border ${
+                      isChildActive
+                        ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/40'
+                        : 'bg-[#0d1117] hover:bg-[#21262d] text-gray-400 hover:text-gray-200 border-[#30363d]'
+                    }`}
+                    title={`${subGroup.title} alt kategorilerini aç / kapat`}
+                  >
+                    <div className="flex items-center space-x-2 min-w-0">
+                      <SubGroupIcon className={`w-3.5 h-3.5 shrink-0 ${isChildActive ? 'text-orange-400' : 'text-gray-400'}`} />
+                      <span className="truncate">{subGroup.title}</span>
+                    </div>
+
+                    <div className="flex items-center space-x-1 pl-1 shrink-0">
+                      {subGroup.badge && (
+                        <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded-full font-semibold ${
+                          isChildActive ? 'bg-orange-500/20 text-orange-300' : 'bg-[#21262d] text-gray-400'
+                        }`}>
+                          {subGroup.badge}
+                        </span>
+                      )}
+                      <ChevronRight
+                        className={`w-4 h-4 transition-transform duration-200 ${
+                          isChildActive ? 'text-orange-400' : 'text-gray-500'
+                        } ${isSubGroupExpanded ? 'rotate-90 text-orange-400' : ''}`}
+                      />
+                    </div>
+                  </button>
+
+                  {/* Sub-categories (Alt Kategoriler) - Exact Kasa İşlemleri subItems structure */}
+                  {isSubGroupExpanded && (
+                    <div className="pl-4 pr-1 py-1 space-y-1 border-l-2 border-orange-500/30 ml-4.5 my-1 transition-all duration-200">
+                      {subGroup.items.map((sub) => {
+                        const itemKey = `${sub.id}-${sub.subId}`;
+                        const isSubActive =
+                          activeTab === sub.id && (!activeSettingsSection || activeSettingsSection === sub.subId);
+                        const ItemIcon = sub.icon;
+
+                        return (
+                          <button
+                            key={itemKey}
+                            id={`sidebar-subitem-${itemKey}`}
+                            onClick={() => {
+                              if (sub.subId && onSelectSettingsSection) {
+                                onSelectSettingsSection(sub.subId);
+                              }
+                              setActiveTab(sub.id);
+                              onCloseMobile();
+                            }}
+                            className={`w-full text-left px-2.5 py-1.5 rounded-lg text-xs font-mono transition flex items-center space-x-2 cursor-pointer ${
+                              isSubActive
+                                ? 'bg-orange-500/20 text-orange-300 font-bold border border-orange-500/40'
+                                : 'text-gray-400 hover:text-gray-200 hover:bg-[#21262d]'
+                            }`}
+                          >
+                            <ItemIcon className={`w-3.5 h-3.5 shrink-0 ${isSubActive ? 'text-orange-400' : 'text-gray-400'}`} />
+                            <span className="truncate">{sub.label}</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
-          <ChevronRight className={`w-3.5 h-3.5 shrink-0 ${isWorkspaceActive ? 'text-orange-400' : 'text-gray-500'}`} />
-        </button>
+        )}
       </div>
     </div>
   );
@@ -465,7 +829,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       {/* Main Groups Icons List */}
       <div className="flex-1 flex flex-col items-center space-y-2.5 py-3">
-        {NAVIGATION_GROUPS.map((group) => {
+        {NAVIGATION_GROUPS.filter((g) => g.id !== 'system').map((group) => {
           const isGroupActive = activeGroupId === group.id;
           const GroupIcon = group.icon;
 
