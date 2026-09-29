@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   RefreshCw,
   Download,
@@ -15,7 +15,13 @@ import {
   GitCommit,
   Check,
   RotateCcw,
+  ExternalLink,
+  Laptop,
+  HardDrive,
+  Cpu,
+  ArrowRight,
 } from 'lucide-react';
+import { ElectronDownloadProgress, ElectronUpdateInfo } from '../types/electron';
 
 interface SoftwareUpdateSectionProps {
   onNotify?: (message: string, type?: 'success' | 'error' | 'info') => void;
@@ -25,11 +31,15 @@ const DEFAULT_REPO = 'msb9512-sudo/BARAN-MUHASEBE-KASA-';
 const DEFAULT_BRANCH = 'main';
 
 export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ onNotify }) => {
-  // Current local version
+  // Running environment check
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
+
+  // Local version state
   const [currentVersion, setCurrentVersion] = useState<string>('1.0.0');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
+  const [userDataPath, setUserDataPath] = useState<string | null>(null);
 
-  // GitHub configuration (Correct default: msb9512-sudo/BARAN-MUHASEBE-KASA-)
+  // GitHub configuration
   const [githubRepo, setGithubRepo] = useState<string>(() => {
     const saved = localStorage.getItem('app_update_github_repo');
     if (!saved || saved === 'msb9512/kasa-yonetimi' || saved.includes('kasa-yonetimi') || !saved.includes('/')) {
@@ -46,14 +56,13 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
   // Update check states
   const [status, setStatus] = useState<
-    'idle' | 'checking' | 'up-to-date' | 'update-available' | 'downloading' | 'success' | 'error'
+    'idle' | 'checking' | 'up-to-date' | 'update-available' | 'downloading' | 'downloaded' | 'success' | 'error'
   >('idle');
   const [remoteVersion, setRemoteVersion] = useState<string | null>(null);
-  const [lastCommitInfo, setLastCommitInfo] = useState<{
-    sha: string | null;
-    message: string | null;
-    date: string | null;
-  } | null>(null);
+  const [releaseNotes, setReleaseNotes] = useState<string | null>(null);
+  const [releaseDate, setReleaseDate] = useState<string | null>(null);
+  const [releaseExeUrl, setReleaseExeUrl] = useState<string | null>(null);
+  const [releaseExeName, setReleaseExeName] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<string>('');
   const [errorDetails, setErrorDetails] = useState<string | null>(null);
   const [lastCheckTime, setLastCheckTime] = useState<string | null>(() => {
@@ -62,33 +71,62 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
   // Download & Installation progress
   const [downloadProgress, setDownloadProgress] = useState<number>(0);
+  const [downloadSpeedText, setDownloadSpeedText] = useState<string>('');
+  const [downloadSizeText, setDownloadSizeText] = useState<string>('');
   const [downloadStepText, setDownloadStepText] = useState<string>('');
   const [countdown, setCountdown] = useState<number>(3);
-  const [updatedFilesCount, setUpdatedFilesCount] = useState<number | null>(null);
-  const [updatedFilesList, setUpdatedFilesList] = useState<string[]>([]);
 
   // Active guide tab
-  const [activeTab, setActiveTab] = useState<'status' | 'architecture' | 'guide'>('status');
+  const [activeTab, setActiveTab] = useState<'status' | 'architecture' | 'actions'>('status');
 
-  // Load local version on mount
+  // Format bytes helper
+  const formatBytes = (bytes: number): string => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const sizes = ['B', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Compare semver: returns 1 if vA > vB, -1 if vA < vB, 0 if equal
+  const compareSemVer = (vA: string, vB: string): number => {
+    const cleanA = vA.replace(/^v/i, '').trim().split('.').map((n) => parseInt(n, 10) || 0);
+    const cleanB = vB.replace(/^v/i, '').trim().split('.').map((n) => parseInt(n, 10) || 0);
+
+    for (let i = 0; i < Math.max(cleanA.length, cleanB.length); i++) {
+      const a = cleanA[i] || 0;
+      const b = cleanB[i] || 0;
+      if (a > b) return 1;
+      if (a < b) return -1;
+    }
+    return 0;
+  };
+
+  // Load version on mount
   useEffect(() => {
     let isMounted = true;
-    async function loadVersion() {
-      try {
-        const res = await fetch(`/api/update/version?t=${Date.now()}`);
-        if (res.ok) {
-          const data = await res.json();
-          if (data.version && isMounted) {
-            setCurrentVersion(data.version);
-            localStorage.setItem('app_installed_version', data.version);
-            setIsLoadingLocalVersion(false);
-            return;
+
+    async function init() {
+      // 1. Try reading version from electronAPI if running in Electron
+      if (window.electronAPI) {
+        try {
+          const appVer = await window.electronAPI.getVersion();
+          if (appVer && isMounted) {
+            setCurrentVersion(appVer);
+            localStorage.setItem('app_installed_version', appVer);
           }
+          const dataPath = await window.electronAPI.getUserDataPath();
+          if (dataPath && isMounted) {
+            setUserDataPath(dataPath);
+          }
+          setIsLoadingLocalVersion(false);
+          return;
+        } catch (e) {
+          console.warn('Electron API version read failed:', e);
         }
-      } catch {
-        // Fallback to static version.txt
       }
 
+      // 2. Fallback to /version.txt
       try {
         const res = await fetch(`/version.txt?t=${Date.now()}`);
         if (res.ok) {
@@ -98,23 +136,103 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
             setCurrentVersion(clean);
             localStorage.setItem('app_installed_version', clean);
           }
-        } else {
-          const saved = localStorage.getItem('app_installed_version') || '1.0.0';
-          if (isMounted) setCurrentVersion(saved);
         }
       } catch (err) {
-        console.warn('version.txt okunurken hata oluştu:', err);
-        const saved = localStorage.getItem('app_installed_version') || '1.0.0';
-        if (isMounted) setCurrentVersion(saved);
+        console.warn('version.txt read failed:', err);
       } finally {
         if (isMounted) setIsLoadingLocalVersion(false);
       }
     }
-    loadVersion();
+
+    init();
     return () => {
       isMounted = false;
     };
-  }, []);
+  }, [isElectron]);
+
+  // Setup electron-updater event listeners when running in Electron
+  useEffect(() => {
+    if (!window.electronAPI) return;
+
+    const unsubs: Array<() => void> = [];
+
+    // Checking event
+    unsubs.push(
+      window.electronAPI.onUpdateChecking(() => {
+        setStatus('checking');
+        setStatusMessage('GitHub Releases üzerinden en son Windows sürümü kontrol ediliyor...');
+        setErrorDetails(null);
+      })
+    );
+
+    // Update available event
+    unsubs.push(
+      window.electronAPI.onUpdateAvailable((info: ElectronUpdateInfo) => {
+        setStatus('update-available');
+        setRemoteVersion(info.version);
+        if (info.releaseDate) setReleaseDate(info.releaseDate);
+        if (info.releaseNotes) {
+          setReleaseNotes(
+            typeof info.releaseNotes === 'string'
+              ? info.releaseNotes
+              : JSON.stringify(info.releaseNotes)
+          );
+        }
+        setStatusMessage(`Yeni Windows sürümü yayınlandı: v${info.version} (Mevcut: v${currentVersion})`);
+      })
+    );
+
+    // Update not available event
+    unsubs.push(
+      window.electronAPI.onUpdateNotAvailable((info: { version: string }) => {
+        setStatus('up-to-date');
+        setStatusMessage(`Uygulamanız tamamen güncel! En son sürümü kullanıyorsunuz (v${info.version || currentVersion}).`);
+      })
+    );
+
+    // Download progress event
+    unsubs.push(
+      window.electronAPI.onDownloadProgress((progress: ElectronDownloadProgress) => {
+        setStatus('downloading');
+        setDownloadProgress(progress.percent);
+        const speed = formatBytes(progress.bytesPerSecond) + '/s';
+        const transferred = formatBytes(progress.transferred);
+        const total = formatBytes(progress.total);
+        setDownloadSpeedText(speed);
+        setDownloadSizeText(`${transferred} / ${total}`);
+        setDownloadStepText(`Yeni Windows sürümü indiriliyor... (${transferred} / ${total} - ${speed})`);
+      })
+    );
+
+    // Update downloaded event
+    unsubs.push(
+      window.electronAPI.onUpdateDownloaded((info: { version: string }) => {
+        setStatus('downloaded');
+        setRemoteVersion(info.version);
+        setStatusMessage(`v${info.version} kurulum paketi başarıyla indirildi. Yüklemeye hazır!`);
+        setDownloadStepText('Kurulum paketi doğrulandı. Kasa verileriniz korunarak uygulama güncellenecektir.');
+
+        if (onNotify) {
+          onNotify(`v${info.version} güncellemesi indirildi. Uygulama yeniden başlatılacak.`, 'success');
+        }
+      })
+    );
+
+    // Error event
+    unsubs.push(
+      window.electronAPI.onError((err: { message: string }) => {
+        setStatus('error');
+        setErrorDetails(
+          `electron-updater hatası: ${err.message}. Mevcut kurulu sürümünüz ve kasa verileriniz güvendedir.`
+        );
+        setStatusMessage('Güncelleme denetimi veya indirme başarısız oldu.');
+      })
+    );
+
+    return () => {
+      unsubs.forEach((fn) => fn());
+    };
+  }, [currentVersion, onNotify]);
 
   // Save repo configuration
   const handleSaveRepoConfig = () => {
@@ -142,217 +260,173 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
     }
   };
 
-  // Compare semver: returns 1 if vA > vB, -1 if vA < vB, 0 if equal
-  const compareSemVer = (vA: string, vB: string): number => {
-    const cleanA = vA.replace(/^v/i, '').trim().split('.').map((n) => parseInt(n, 10) || 0);
-    const cleanB = vB.replace(/^v/i, '').trim().split('.').map((n) => parseInt(n, 10) || 0);
-
-    for (let i = 0; i < Math.max(cleanA.length, cleanB.length); i++) {
-      const a = cleanA[i] || 0;
-      const b = cleanB[i] || 0;
-      if (a > b) return 1;
-      if (a < b) return -1;
-    }
-    return 0;
-  };
-
-  // Check for updates via backend API and GitHub
-  const handleCheckUpdates = async () => {
+  // Check for updates (Electron autoUpdater OR GitHub Releases API)
+  const handleCheckUpdates = useCallback(async () => {
     setStatus('checking');
     setErrorDetails(null);
-    setStatusMessage('GitHub üzerinden en son sürüm bilgileri sorgulanıyor...');
+    setStatusMessage('GitHub Releases üzerinde en son yayınlanan sürüm kontrol ediliyor...');
+
+    const nowTime = new Date().toLocaleTimeString('tr-TR', {
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    setLastCheckTime(nowTime);
+    localStorage.setItem('app_last_update_check', nowTime);
 
     const repoClean = (githubRepo.trim() || DEFAULT_REPO)
       .replace(/^https?:\/\/github\.com\//i, '')
       .replace(/\/$/, '');
-    const branchClean = githubBranch.trim() || DEFAULT_BRANCH;
 
-    if (!repoClean || !repoClean.includes('/')) {
-      setStatus('error');
-      setErrorDetails(`Geçerli bir GitHub depo adı belirtiniz (Örnek: ${DEFAULT_REPO}).`);
-      setStatusMessage('Depo formatı geçersiz.');
-      return;
+    // 1. If running in Electron: use electron-updater
+    if (window.electronAPI) {
+      try {
+        const res = await window.electronAPI.checkForUpdates();
+        if (!res.success && res.error) {
+          throw new Error(res.error);
+        }
+        return;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Electron güncelleme motoruna erişilemedi';
+        console.warn('Electron updater check failed, falling back to GitHub API:', msg);
+      }
     }
 
+    // 2. Direct GitHub Releases API check (Works in both browser and Electron)
     try {
-      // 1. Backend endpoint /api/update/check
-      let apiSuccess = false;
-      try {
-        const apiRes = await fetch('/api/update/check', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ repo: repoClean, branch: branchClean }),
-        });
+      const releaseApiUrl = `https://api.github.com/repos/${repoClean}/releases/latest`;
+      const res = await fetch(releaseApiUrl, {
+        headers: { Accept: 'application/vnd.github.v3+json' },
+      });
 
-        if (apiRes.ok) {
-          const data = await apiRes.json();
-          if (data.success) {
-            apiSuccess = true;
-            const nowTime = new Date().toLocaleTimeString('tr-TR', {
-              hour: '2-digit',
-              minute: '2-digit',
-              second: '2-digit',
-            });
-            setLastCheckTime(nowTime);
-            localStorage.setItem('app_last_update_check', nowTime);
-
-            setRemoteVersion(data.remoteVersion);
-            if (data.lastCommit) {
-              setLastCommitInfo(data.lastCommit);
-            }
-
-            if (data.updateAvailable) {
-              setStatus('update-available');
-              setStatusMessage(`Yeni sürüm mevcut: v${data.remoteVersion} (Mevcut: v${data.currentVersion})`);
-            } else {
-              setStatus('up-to-date');
-              setStatusMessage(`Uygulamanız güncel! En son sürümü kullanıyorsunuz (v${data.currentVersion}).`);
-            }
+      if (res.status === 404) {
+        // No release created yet in GitHub repo
+        // Also check raw version.txt as fallback
+        const rawUrl = `https://raw.githubusercontent.com/${repoClean}/${githubBranch}/version.txt?t=${Date.now()}`;
+        const rawRes = await fetch(rawUrl, { cache: 'no-store' });
+        if (rawRes.ok) {
+          const txt = (await rawRes.text()).trim();
+          const comparison = compareSemVer(txt, currentVersion);
+          if (comparison > 0) {
+            setStatus('update-available');
+            setRemoteVersion(txt);
+            setStatusMessage(`GitHub main dalında v${txt} bulundu (Henüz Release derlenmemiş olabilir).`);
             return;
           }
         }
-      } catch {
-        // Fallback to direct GitHub fetch
+
+        setStatus('up-to-date');
+        setStatusMessage(
+          `GitHub Releases henüz oluşturulmamış veya yayınlanmış yeni sürüm yok. Sürümünüz: v${currentVersion}`
+        );
+        return;
       }
 
-      if (!apiSuccess) {
-        // 2. Direct GitHub fetch fallback
-        const rawUrl = `https://raw.githubusercontent.com/${repoClean}/${branchClean}/version.txt?t=${Date.now()}`;
-        const rawRes = await fetch(rawUrl, { cache: 'no-store' });
+      if (!res.ok) {
+        throw new Error(`GitHub API yanıt vermedi (HTTP ${res.status}). İnternet bağlantınızı kontrol ediniz.`);
+      }
 
-        if (!rawRes.ok) {
-          throw new Error(
-            `"${repoClean}" deposuna (${branchClean} dalı) erişilemedi veya version.txt bulunamadı (HTTP ${rawRes.status}).`
-          );
-        }
+      const releaseData = await res.json();
+      const latestTag = (releaseData.tag_name || '').replace(/^v/i, '').trim();
+      const releaseBody = releaseData.body || null;
+      const pubDate = releaseData.published_at
+        ? new Date(releaseData.published_at).toLocaleDateString('tr-TR')
+        : null;
 
-        const txt = await rawRes.text();
-        const fetchedVersion = txt.trim();
+      // Find Windows .exe installer asset
+      const assets = releaseData.assets || [];
+      const exeAsset = assets.find(
+        (a: any) => a.name && (a.name.endsWith('.exe') || a.name.includes('Setup'))
+      );
 
-        if (!fetchedVersion) {
-          throw new Error('version.txt dosyası boş.');
-        }
+      setRemoteVersion(latestTag);
+      setReleaseNotes(releaseBody);
+      setReleaseDate(pubDate);
 
-        const nowTime = new Date().toLocaleTimeString('tr-TR', {
-          hour: '2-digit',
-          minute: '2-digit',
-          second: '2-digit',
-        });
-        setLastCheckTime(nowTime);
-        localStorage.setItem('app_last_update_check', nowTime);
+      if (exeAsset) {
+        setReleaseExeUrl(exeAsset.browser_download_url);
+        setReleaseExeName(exeAsset.name);
+      } else {
+        setReleaseExeUrl(null);
+        setReleaseExeName(null);
+      }
 
-        setRemoteVersion(fetchedVersion);
-        const comparison = compareSemVer(fetchedVersion, currentVersion);
+      const comparison = compareSemVer(latestTag, currentVersion);
 
-        if (comparison > 0) {
-          setStatus('update-available');
-          setStatusMessage(`Yeni sürüm mevcut: v${fetchedVersion} (Mevcut: v${currentVersion})`);
-        } else {
-          setStatus('up-to-date');
-          setStatusMessage(`Uygulamanız güncel! En son sürümü kullanıyorsunuz (v${currentVersion}).`);
-        }
+      if (comparison > 0) {
+        setStatus('update-available');
+        setStatusMessage(`Yeni sürüm mevcut: v${latestTag} (Mevcut: v${currentVersion})`);
+      } else {
+        setStatus('up-to-date');
+        setStatusMessage(`Uygulamanız güncel! En son yayınlanan sürümü (v${currentVersion}) kullanıyorsunuz.`);
       }
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Bilinmeyen bir ağ hatası oluştu';
+      const msg = err instanceof Error ? err.message : 'GitHub bağlantı hatası oluştu';
       setStatus('error');
       setErrorDetails(
         `Güncelleme kontrolü başarısız: ${msg}. Eski çalışan sürümünüz (v${currentVersion}) bozulmadan korunmaktadır. Verileriniz güvendedir.`
       );
       setStatusMessage('Güncelleme sunucusuna erişilemedi.');
     }
-  };
+  }, [currentVersion, githubBranch, githubRepo]);
 
-  // REAL download and file application
-  const handleExecuteUpdate = async (targetVer?: string) => {
-    const versionToInstall = targetVer || remoteVersion || currentVersion;
-
+  // Execute update download via electron-updater or browser
+  const handleExecuteUpdate = async () => {
     setStatus('downloading');
     setDownloadProgress(10);
-    setDownloadStepText('Kullanıcı verileri kilitleniyor ve güvenlik yedeği alınıyor...');
+    setDownloadStepText('Kullanıcı verileri kilitleniyor (%APPDATA% korunuyor)...');
 
-    // 1. Safety snapshot of all user records in localStorage before touching any code
-    try {
-      const snapshot: Record<string, string | null> = {};
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && !k.startsWith('app_update_') && !k.startsWith('emergency_')) {
-          snapshot[k] = localStorage.getItem(k);
+    // 1. If in Electron: trigger electron-updater download
+    if (window.electronAPI) {
+      try {
+        setDownloadProgress(25);
+        setDownloadStepText('electron-updater GitHub Release üzerinden yeni sürümü indiriyor...');
+        const res = await window.electronAPI.downloadUpdate();
+        if (!res.success && res.error) {
+          throw new Error(res.error);
         }
+        return;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'İndirme başlatılamadı';
+        setStatus('error');
+        setErrorDetails(
+          `electron-updater indirme hatası: ${msg}. Mevcut çalışan sürümünüz ve kasa verileriniz bozulmadan korunmaktadır.`
+        );
+        setStatusMessage('İndirme işlemi başarısız oldu.');
+        if (onNotify) {
+          onNotify('İndirme başarısız: ' + msg, 'error');
+        }
+        return;
       }
-      localStorage.setItem(`emergency_user_data_backup_${Date.now()}`, JSON.stringify(snapshot));
-    } catch {
-      // Continue safely
     }
 
-    setDownloadProgress(25);
-    setDownloadStepText('Kasa kayıtları, cariler ve veritabanı koruma altına alındı (Dokunulmayacak).');
+    // 2. Web browser mode: if exe download link available, open download
+    if (releaseExeUrl) {
+      setDownloadProgress(100);
+      setStatus('downloaded');
+      setDownloadStepText('Windows .exe kurulum dosyası indiriliyor...');
+      window.open(releaseExeUrl, '_blank');
+      if (onNotify) {
+        onNotify('Windows kurulum dosyası indirilmeye başlandı.', 'success');
+      }
+      return;
+    }
 
+    // Direct GitHub release page fallback
     const repoClean = (githubRepo.trim() || DEFAULT_REPO)
       .replace(/^https?:\/\/github\.com\//i, '')
       .replace(/\/$/, '');
-    const branchClean = githubBranch.trim() || DEFAULT_BRANCH;
+    window.open(`https://github.com/${repoClean}/releases`, '_blank');
+    setStatus('downloaded');
+    setDownloadStepText('GitHub Release indirme sayfası açıldı.');
+  };
 
-    try {
-      setDownloadProgress(45);
-      setDownloadStepText(`GitHub'dan (${repoClean}/${branchClean}) en güncel dosyalar indiriliyor...`);
-
-      const res = await fetch('/api/update/apply', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          repo: repoClean,
-          branch: branchClean,
-          targetVersion: versionToInstall,
-        }),
-      });
-
-      setDownloadProgress(80);
-      setDownloadStepText('Eski dosyaların üzerine yazılıyor, veritabanı ve kullanıcı kayıtları korunuyor...');
-
-      const data = await res.json();
-
-      if (!res.ok || !data.success) {
-        throw new Error(data.error || 'Sunucu dosyaları üzerine yazarken bir hata ile karşılaştı.');
-      }
-
-      setDownloadProgress(100);
-      setUpdatedFilesCount(data.updatedCount || null);
-      if (data.updatedItems && Array.isArray(data.updatedItems)) {
-        setUpdatedFilesList(data.updatedItems);
-      }
-      setCurrentVersion(data.newVersion || versionToInstall);
-      localStorage.setItem('app_installed_version', data.newVersion || versionToInstall);
-      setStatus('success');
-      setStatusMessage(
-        `v${data.newVersion || versionToInstall} başarıyla yüklendi! (${data.updatedCount || 'Tüm'} dosya güncellendi)`
-      );
-      setDownloadStepText('Güncelleme tamamlandı. Uygulama kendini yeniden başlatıyor...');
-
-      if (onNotify) {
-        onNotify(`v${data.newVersion || versionToInstall} güncellemesi başarıyla yüklendi!`, 'success');
-      }
-
-      // 3-second countdown to reload
-      let secondsLeft = 3;
-      setCountdown(secondsLeft);
-      const interval = setInterval(() => {
-        secondsLeft -= 1;
-        setCountdown(secondsLeft);
-        if (secondsLeft <= 0) {
-          clearInterval(interval);
-          window.location.reload();
-        }
-      }, 1000);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'İndirme sırasında beklenmeyen bir hata oluştu.';
-      setStatus('error');
-      setErrorDetails(
-        `Güncelleme indirilemedi: ${msg}. Eski çalışan sürümünüz (v${currentVersion}) bozulmadan korunmuştur. Kasa verileriniz ve ayarlarınız güvendedir.`
-      );
-      setStatusMessage('Güncelleme işlemi başarısız oldu.');
-      if (onNotify) {
-        onNotify('Güncelleme başarısız: ' + msg, 'error');
-      }
+  // Quit and install update via electron-updater
+  const handleQuitAndInstall = () => {
+    if (window.electronAPI) {
+      window.electronAPI.quitAndInstall();
+    } else {
+      window.location.reload();
     }
   };
 
@@ -370,27 +444,43 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 <span className="w-2 h-2 rounded-full bg-orange-500 inline-block animate-pulse"></span>
                 <span>YAZILIM GÜNCELLEME SİSTEMİ</span>
                 <span className="text-gray-500">•</span>
-                <span className="text-gray-400 lowercase font-normal">GitHub Canlı Güncelleme</span>
+                <span className="text-gray-400 lowercase font-normal flex items-center space-x-1">
+                  <Laptop className="w-3.5 h-3.5" />
+                  <span>{isElectron ? 'Electron-Updater (Masaüstü)' : 'GitHub Release Entegrasyonu'}</span>
+                </span>
               </div>
               <h2 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                Otomatik Güncelleme & Sürüm Yönetimi
+                Otomatik Güncelleme & Release Yönetimi
               </h2>
               <p className="text-xs text-gray-400 font-mono mt-0.5">
-                GitHub deponuz üzerinden en güncel dosyaları indirin ve uygulayın. Kasa verileriniz ve ayarlarınız asla silinmez.
+                GitHub Releases üzerinden yeni Windows kurulum paketlerini kontrol edin ve tek tıkla güncelleyin. Kasa verileriniz asla silinmez.
               </p>
             </div>
           </div>
 
-          {/* Sürüm Rozeti */}
-          <div className="flex items-center space-x-2 bg-[#0d1117] border border-[#30363d] px-3.5 py-2 rounded-xl shrink-0 self-start md:self-auto">
-            <span className="text-xs font-mono text-gray-400">Mevcut Sürüm:</span>
-            <span className="text-sm font-bold font-mono text-orange-400 bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/30">
-              {isLoadingLocalVersion ? 'Okunuyor...' : `v${currentVersion}`}
-            </span>
+          {/* Sürüm & Ortam Rozeti */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center gap-2 shrink-0">
+            <div className="flex items-center space-x-2 bg-[#0d1117] border border-[#30363d] px-3.5 py-2 rounded-xl">
+              <span className="text-xs font-mono text-gray-400">Kurulu Sürüm:</span>
+              <span className="text-sm font-bold font-mono text-orange-400 bg-orange-500/10 px-2.5 py-0.5 rounded border border-orange-500/30">
+                {isLoadingLocalVersion ? 'Okunuyor...' : `v${currentVersion}`}
+              </span>
+            </div>
+
+            <div
+              className={`flex items-center space-x-1.5 px-3 py-2 rounded-xl border text-xs font-mono font-bold ${
+                isElectron
+                  ? 'bg-blue-500/10 border-blue-500/30 text-blue-300'
+                  : 'bg-emerald-500/10 border-emerald-500/30 text-emerald-300'
+              }`}
+            >
+              <Cpu className="w-3.5 h-3.5" />
+              <span>{isElectron ? 'Masaüstü (Electron)' : 'Web / Önizleme Modu'}</span>
+            </div>
           </div>
         </div>
 
-        {/* Tab Switcher: Kontrol Paneli / Mimari / Kılavuz */}
+        {/* Tab Switcher: Kontrol Paneli / Mimari / GitHub Actions */}
         <div className="flex items-center space-x-2 mt-5 pt-4 border-t border-[#30363d] overflow-x-auto no-scrollbar">
           <button
             type="button"
@@ -415,20 +505,20 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
             }`}
           >
             <Server className="w-3.5 h-3.5" />
-            <span>EXE & Güncelleyici Mimarisi</span>
+            <span>electron-updater & Veri Güvenliği Mimarisi</span>
           </button>
 
           <button
             type="button"
-            onClick={() => setActiveTab('guide')}
+            onClick={() => setActiveTab('actions')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-mono transition flex items-center space-x-2 cursor-pointer border ${
-              activeTab === 'guide'
+              activeTab === 'actions'
                 ? 'bg-orange-500/20 text-orange-300 font-bold border-orange-500/50 shadow-xs'
                 : 'bg-[#0d1117] hover:bg-[#21262d] text-gray-400 hover:text-white border-[#30363d]'
             }`}
           >
             <FileCode className="w-3.5 h-3.5" />
-            <span>version.txt Nasıl Artırılır?</span>
+            <span>GitHub Actions Otomatik EXE Derleme</span>
           </button>
         </div>
       </div>
@@ -442,12 +532,12 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               <div className="flex items-center space-x-2.5">
                 <FolderGit2 className="w-4 h-4 text-orange-400" />
                 <h3 className="font-bold text-sm text-white font-mono uppercase tracking-wider">
-                  GitHub Güncelleme Kaynağı (Depo & Dal)
+                  GitHub Release Kaynağı (Depo & Dal)
                 </h3>
               </div>
               <div className="flex items-center space-x-2">
                 <span className="text-[11px] font-mono text-gray-400">
-                  Hedef: <strong className="text-orange-300">{githubRepo}</strong> ({githubBranch})
+                  Hedef: <strong className="text-orange-300">{githubRepo}</strong>
                 </span>
                 {githubRepo !== DEFAULT_REPO && (
                   <button
@@ -477,7 +567,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
               <div className="space-y-1">
                 <label className="text-xs text-gray-400 font-mono block">
-                  Branch (Dal):
+                  Release Dalı (Branch):
                 </label>
                 <input
                   type="text"
@@ -491,7 +581,9 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
             <div className="flex items-center justify-between pt-2">
               <p className="text-[11px] font-mono text-gray-500">
-                GitHub deposundaki en güncel dosyalar bu adresten indirilip uygulamanın çalıştığı dizine yazılır.
+                {isElectron
+                  ? 'electron-updater bu depodaki en son Release ve latest.yml dosyasını tarayarak güncellemeleri yönetir.'
+                  : 'GitHub Releases API ile bu depodaki en güncel Windows kurulum paketi denetlenir.'}
               </p>
               <button
                 type="button"
@@ -546,20 +638,24 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               </div>
             </div>
 
-            {/* Durum Mesajı Alanı (Güncel / Yeni Sürüm Var / Hata / İndiriliyor) */}
+            {/* Durum Mesajı Alanı: Idle */}
             {status === 'idle' && (
               <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] flex items-center space-x-3 text-xs font-mono text-gray-400">
                 <Info className="w-4 h-4 text-gray-400 shrink-0" />
                 <span>
-                  GitHub'daki en son sürümü ve güncellemeleri denetlemek için yukarıdaki <strong>"Güncellemeleri Kontrol Et"</strong> butonuna basınız.
+                  GitHub'daki en son yayınlanan Windows Release paketini denetlemek için yukarıdaki{' '}
+                  <strong>"Güncellemeleri Kontrol Et"</strong> butonuna basınız.
                 </span>
               </div>
             )}
 
+            {/* Durum Mesajı Alanı: Checking */}
             {status === 'checking' && (
               <div className="p-4 rounded-xl bg-orange-500/10 border border-orange-500/30 flex items-center space-x-3 text-xs font-mono text-orange-300 animate-pulse">
                 <RefreshCw className="w-4 h-4 animate-spin text-orange-400 shrink-0" />
-                <span>GitHub deposu ({githubRepo}) taranıyor ve son yayınlanan `version.txt` kontrol ediliyor...</span>
+                <span>
+                  GitHub Releases taranıyor ({githubRepo})... {statusMessage}
+                </span>
               </div>
             )}
 
@@ -571,30 +667,9 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <div className="flex-1">
                     <div className="font-bold text-sm text-emerald-400">Yazılımınız Tamamen Güncel!</div>
                     <p className="text-emerald-300/80 mt-1">
-                      En son sürüm olan <strong>v{currentVersion}</strong> kullanılıyor. GitHub deposunda daha yeni bir sürüm numarası bulunmamaktadır.
+                      En son yayınlanan sürüm olan <strong>v{currentVersion}</strong> kullanılıyor. GitHub Releases üzerinde daha yeni bir kurulum paketi bulunmamaktadır.
                     </p>
-                    {lastCommitInfo && lastCommitInfo.message && (
-                      <div className="mt-2 text-[11px] text-gray-400 flex items-center space-x-2">
-                        <GitCommit className="w-3.5 h-3.5 text-gray-500" />
-                        <span>Son Değişiklik ({lastCommitInfo.sha}): {lastCommitInfo.message}</span>
-                      </div>
-                    )}
                   </div>
-                </div>
-
-                {/* İsteğe Bağlı: GitHub'dan en güncel kodları zorla yeniden çekme butonu */}
-                <div className="pt-2 border-t border-emerald-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                  <span className="text-[11px] text-gray-400">
-                    GitHub main dalındaki en güncel dosyaları doğrudan indirip üzerine yazmak isterseniz:
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => handleExecuteUpdate(currentVersion)}
-                    className="px-3.5 py-1.5 bg-[#0d1117] hover:bg-[#21262d] border border-emerald-500/40 text-emerald-300 rounded-lg text-xs font-mono font-bold transition flex items-center space-x-1.5 shrink-0 cursor-pointer self-start sm:self-auto"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    <span>En Güncel Dosyaları İndir ve Yenile</span>
-                  </button>
                 </div>
               </div>
             )}
@@ -609,18 +684,24 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                     </div>
                     <div>
                       <div className="text-xs font-mono uppercase tracking-wider text-orange-400 font-bold">
-                        YENİ SÜRÜM BULUNDU
+                        YENİ RELEASE BULUNDU
                       </div>
                       <div className="text-base sm:text-lg font-bold text-white font-mono">
-                        Sürüm v{remoteVersion} Yayında! <span className="text-xs text-gray-400 font-normal">(Mevcut: v{currentVersion})</span>
+                        Sürüm v{remoteVersion} Yayında!{' '}
+                        <span className="text-xs text-gray-400 font-normal">(Mevcut: v{currentVersion})</span>
                       </div>
+                      {releaseDate && (
+                        <div className="text-[11px] text-gray-400 font-mono mt-0.5">
+                          Yayınlanma Tarihi: {releaseDate}
+                        </div>
+                      )}
                     </div>
                   </div>
 
                   <button
                     type="button"
                     id="btn-execute-update"
-                    onClick={() => handleExecuteUpdate()}
+                    onClick={handleExecuteUpdate}
                     className="px-5 py-2.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white font-mono font-bold text-xs rounded-xl shadow-lg shadow-orange-500/25 transition cursor-pointer flex items-center justify-center space-x-2 shrink-0 border border-orange-400"
                   >
                     <Download className="w-4 h-4" />
@@ -628,32 +709,43 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   </button>
                 </div>
 
-                <div className="p-3 bg-[#0d1117] rounded-xl border border-[#30363d] space-y-2 text-xs font-mono">
-                  <div className="font-bold text-orange-300">İndirilecek Kaynak:</div>
-                  <div className="text-gray-300">
-                    Depo: <code className="text-orange-400">{githubRepo}</code> • Dal: <code className="text-orange-400">{githubBranch}</code>
+                {releaseNotes && (
+                  <div className="p-3 bg-[#0d1117] rounded-xl border border-[#30363d] space-y-1 text-xs font-mono">
+                    <div className="font-bold text-orange-300">Sürüm Notları (Changelog):</div>
+                    <p className="text-gray-300 whitespace-pre-line leading-relaxed text-[11px]">
+                      {releaseNotes}
+                    </p>
                   </div>
-                  {lastCommitInfo && lastCommitInfo.message && (
-                    <div className="text-gray-400 text-[11px] pt-1 border-t border-[#30363d]">
-                      Son Değişiklik ({lastCommitInfo.sha}): {lastCommitInfo.message}
-                    </div>
-                  )}
-                  <div className="text-[11px] text-emerald-400 pt-1">
-                    ✓ Kasa kayıtları, cariler, Z raporları ve veritabanı dosyaları bu işlemden asla etkilenmeyecektir.
+                )}
+
+                <div className="p-3 bg-[#0d1117] rounded-xl border border-[#30363d] space-y-1.5 text-xs font-mono">
+                  <div className="text-gray-300">
+                    Hedef Depo: <code className="text-orange-400">{githubRepo}</code>
+                    {releaseExeName && (
+                      <span className="ml-2">
+                        • Dosya: <code className="text-orange-400">{releaseExeName}</code>
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] text-emerald-400">
+                    ✓ Kasa kayıtları, cariler, Z raporları ve veritabanı (%APPDATA%) bu güncellemeden asla etkilenmeyecektir.
                   </div>
                 </div>
               </div>
             )}
 
-            {/* İNDİRİLİYOR & YÜKLENİYOR DURUMU */}
+            {/* İNDİRİLİYOR DURUMU */}
             {status === 'downloading' && (
               <div className="p-5 rounded-2xl bg-[#0d1117] border border-orange-500/50 space-y-3">
                 <div className="flex items-center justify-between text-xs font-mono">
                   <span className="text-orange-400 font-bold flex items-center space-x-2">
                     <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                    <span>GitHub'dan Gerçek Dosyalar İndiriliyor & Yazılıyor...</span>
+                    <span>{isElectron ? 'electron-updater İndiriyor...' : 'Güncelleme Paketi İndiriliyor...'}</span>
                   </span>
-                  <span className="font-bold text-white font-mono">%{downloadProgress}</span>
+                  <div className="flex items-center space-x-3">
+                    {downloadSpeedText && <span className="text-gray-400">{downloadSpeedText}</span>}
+                    <span className="font-bold text-white font-mono">%{downloadProgress}</span>
+                  </div>
                 </div>
 
                 {/* Progress Bar */}
@@ -664,31 +756,36 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   />
                 </div>
 
-                <p className="text-[11px] font-mono text-gray-300">{downloadStepText}</p>
+                <div className="flex items-center justify-between text-[11px] font-mono text-gray-300">
+                  <span>{downloadStepText}</span>
+                  {downloadSizeText && <span className="text-gray-400">{downloadSizeText}</span>}
+                </div>
               </div>
             )}
 
-            {/* BAŞARILI DURUM */}
-            {status === 'success' && (
-              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 space-y-2">
-                <div className="flex items-center space-x-2.5 font-bold text-base text-emerald-400 font-mono">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-400" />
-                  <span>Güncelleme Başarıyla Tamamlandı!</span>
-                </div>
-                <p className="text-xs font-mono text-emerald-300/90">
-                  Uygulama başarıyla <strong>v{remoteVersion || currentVersion}</strong> sürümüne yükseltildi.
-                  {updatedFilesCount !== null && ` (${updatedFilesCount} dosya güncellendi). `}
-                  Tüm kasa kayıtlarınız, carileriniz ve kullanıcı verileriniz eksiksiz olarak korundu.
-                </p>
-                {updatedFilesList.length > 0 && (
-                  <div className="text-[11px] font-mono text-gray-400 pt-1">
-                    Güncellenen modüller: {updatedFilesList.join(', ')}
+            {/* İNDİRİLDİ / YENİDEN BAŞLATMAYA HAZIR DURUMU */}
+            {status === 'downloaded' && (
+              <div className="p-5 rounded-2xl bg-emerald-500/10 border border-emerald-500/40 text-emerald-300 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center space-x-2.5 font-bold text-base text-emerald-400 font-mono">
+                    <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                    <span>Güncelleme Başarıyla İndirildi!</span>
                   </div>
-                )}
-                <div className="pt-2 text-xs font-mono text-white flex items-center space-x-2">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 inline-block animate-ping"></span>
-                  <span>Uygulama {countdown} saniye içinde kendini yeniden başlatıyor...</span>
+
+                  <button
+                    type="button"
+                    onClick={handleQuitAndInstall}
+                    className="px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-white font-mono font-bold text-xs rounded-xl shadow-lg shadow-emerald-500/25 transition cursor-pointer flex items-center space-x-2 self-start sm:self-auto border border-emerald-400"
+                  >
+                    <RotateCcw className="w-4 h-4" />
+                    <span>{isElectron ? 'Yeniden Başlat ve Güncelle' : 'Uygulamayı Yenile'}</span>
+                  </button>
                 </div>
+
+                <p className="text-xs font-mono text-emerald-300/90">
+                  v{remoteVersion || currentVersion} sürümü yüklendiğinde uygulama otomatik olarak yeniden başlatılacak.
+                  Tüm kasa kayıtlarınız, carileriniz ve ayarlarınız eksiksiz olarak korunacaktır.
+                </p>
               </div>
             )}
 
@@ -703,26 +800,34 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   {errorDetails || statusMessage}
                 </p>
                 <div className="mt-3 p-3 bg-red-950/40 rounded-xl border border-red-500/30 text-[11px] font-mono text-gray-300">
-                  <strong className="text-emerald-400">Veri Güvenliği Garantisi:</strong> Mevcut çalışan sürümünüz (v{currentVersion}) ve kasa kayıtlarınız hiçbir zarar görmeden çalışmaya devam etmektedir. İnternet bağlantınızı veya GitHub depo ayarlarını kontrol edip tekrar deneyebilirsiniz.
+                  <strong className="text-emerald-400">Veri Güvenliği Garantisi:</strong> Mevcut çalışan sürümünüz (v{currentVersion}) ve kasa kayıtlarınız hiçbir zarar görmeden çalışmaya devam etmektedir. İnternet bağlantınızı veya GitHub Releases durumunu kontrol edip tekrar deneyebilirsiniz.
                 </div>
               </div>
             )}
           </div>
 
-          {/* 3. Veri Güvenliği Garantisi Kutusu (Kullanıcı Verileri ASLA Silinmez) */}
-          <div className="bg-[#161b22] border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-sm">
+          {/* 3. Veri Güvenliği Garantisi Kutusu */}
+          <div className="bg-[#161b22] border border-emerald-500/30 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
             <div className="flex items-start space-x-3.5">
               <div className="p-2 rounded-xl bg-emerald-500/10 text-emerald-400 shrink-0 mt-0.5">
                 <ShieldCheck className="w-5 h-5" />
               </div>
-              <div className="space-y-1">
+              <div className="space-y-1 flex-1">
                 <h4 className="font-bold text-xs uppercase tracking-wider text-emerald-400 font-mono">
-                  Kullanıcı Verileri Koruma Garantisi
+                  Masaüstü Kullanıcı Verileri Koruma Garantisi (electron-updater + NSIS)
                 </h4>
                 <p className="text-xs text-gray-300 font-mono leading-relaxed">
-                  Güncelleme mekanizması yalnızca derlenmiş uygulama kodlarını (HTML/JS/CSS veya bundle paketini) yeniler.
-                  Kasa kayıtları, Z raporları, günlük giderler, cari hesaplar, SQLite veritabanı ve ayar dosyalarınız
-                  güncelleme işleminden <strong>ASLA etkilenmez, silinmez ve üzerine yazılmaz</strong>.
+                  Masaüstü uygulamasında kullanıcı verileri (kasa kayıtları, cariler, SQLite / IndexedDB veritabanı ve yedekler)
+                  işletim sisteminizin güvenli <strong>AppData</strong> klasöründe saklanır:
+                </p>
+                {userDataPath && (
+                  <div className="mt-2 p-2 bg-[#0d1117] rounded-lg border border-[#30363d] text-[11px] font-mono text-emerald-300 break-all flex items-center space-x-1.5">
+                    <HardDrive className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                    <span>Veri Konumu: {userDataPath}</span>
+                  </div>
+                )}
+                <p className="text-[11px] text-gray-400 font-mono pt-1">
+                  <code>electron-updater</code> yalnızca programın çalıştırılabilir kodlarını günceller. Veritabanı ve kasa kayıtları klasörüne <strong>ASLA dokunulmaz, üzerine yazılmaz veya silinmez</strong>.
                 </p>
               </div>
             </div>
@@ -730,24 +835,24 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
         </div>
       )}
 
-      {/* 2. TAB: EXE & GÜNCELLEYİCİ MİMARİSİ */}
+      {/* 2. TAB: ELECTRON-UPDATER & MİMARİ */}
       {activeTab === 'architecture' && (
         <div className="space-y-6">
           <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 sm:p-6 space-y-5">
             <div>
               <h3 className="text-lg font-bold text-white font-mono flex items-center space-x-2">
                 <Server className="w-5 h-5 text-orange-400" />
-                <span>EXE ve Güncellenecek Dosyaların Ayrılması (Mimari Öneri)</span>
+                <span>electron-updater Nasıl Çalışır? (Masaüstü Mimarisi)</span>
               </h3>
               <p className="text-xs text-gray-400 font-mono mt-1 leading-relaxed">
-                Windows işletim sisteminde çalışan bir <code className="text-orange-300">.exe</code> dosyası bellekte çalışırken kendi kendisinin üzerine yazılamaz (Windows Dosya Kilidi - File Locking). Bu nedenle profesyonel masaüstü uygulamalarında aşağıdaki <strong>Launcher + App + Data</strong> 3 katmanlı mimarisi kullanılır.
+                Masaüstü Windows uygulamalarında dosya kilidi (file locking) ve izin problemleri yaşamamak için endüstri standardı olan <strong>electron-updater</strong> ve <strong>NSIS diferansiyel güncelleme motoru</strong> kullanılır.
               </p>
             </div>
 
             {/* Mimari Şeması */}
             <div className="bg-[#0d1117] border border-[#30363d] rounded-2xl p-4 sm:p-5 font-mono text-xs space-y-4">
               <div className="font-bold text-orange-400 uppercase tracking-wider text-[11px] pb-2 border-b border-[#30363d]">
-                Önerilen Klasör Mimarisi
+                Windows Masaüstü Dosya Katmanları
               </div>
 
               <div className="space-y-3 font-mono">
@@ -756,21 +861,9 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                     <Terminal className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="font-bold text-blue-300 text-sm">1. KasaYonetimi.exe (Ana Başlatıcı / Launcher)</div>
+                    <div className="font-bold text-blue-300 text-sm">1. Program Dosyaları (%LOCALAPPDATA%\Programs\baran-kasa-yonetimi)</div>
                     <p className="text-gray-400 text-[11px] mt-0.5">
-                      Çok küçük (1-2 MB) bir başlatıcıdır. Asla güncellenmesine gerek kalmaz. Görevi: <code className="text-gray-200">app/</code> klasöründeki kodları çalıştırmak ve güncelleme emri geldiğinde geçici klasördeki dosyaları <code className="text-gray-200">app/</code> içine kopyalayıp uygulamayı yeniden başlatmaktır.
-                    </p>
-                  </div>
-                </div>
-
-                <div className="p-3 bg-[#161b22] rounded-xl border border-orange-500/30 flex items-start space-x-3">
-                  <div className="p-1.5 rounded-lg bg-orange-500/10 text-orange-400 shrink-0">
-                    <Layers className="w-4 h-4" />
-                  </div>
-                  <div>
-                    <div className="font-bold text-orange-300 text-sm">2. app/ Klasörü (Güncellenen Kod Dosyaları)</div>
-                    <p className="text-gray-400 text-[11px] mt-0.5">
-                      HTML, JavaScript, CSS ve ikon varlıklarının bulunduğu klasördür. GitHub'dan yeni bir sürüm çıktığında sadece bu klasörün içeriği indirilir ve üzerine yazılır. EXE kapalıyken değiştirildiği için dosya kilidi hatası oluşmaz.
+                      Windows EXE çalıştırıcı, Electron çekirdeği ve derlenmiş React arayüz dosyaları burada bulunur. Güncelleme butonuna basıldığında sadece bu klasör yenilenir.
                     </p>
                   </div>
                 </div>
@@ -780,51 +873,51 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                     <Database className="w-4 h-4" />
                   </div>
                   <div>
-                    <div className="font-bold text-emerald-300 text-sm">3. data/ Klasörü (Kullanıcı Veritabanı & Ayarlar)</div>
+                    <div className="font-bold text-emerald-300 text-sm">2. Kullanıcı Veri Klasörü (%APPDATA%\baran-kasa-yonetimi)</div>
                     <p className="text-gray-400 text-[11px] mt-0.5">
-                      Kasa kayıtları, SQLite veritabanı, yedekler ve yerel ayar dosyaları burada tutulur. <strong>Bu klasör güncelleyicinin erişim alanı dışındadır</strong> ve güncellemeler sırasında hiçbir dosya silinmez veya üzerine yazılmaz.
+                      Tüm kasa icmalleri, cariler, POS tanımları, SQLite / IndexedDB kayıtları bu klasörde yaşar. <strong>electron-updater ve kurulum sihirbazı (NSIS) bu klasöre ASLA dokunmaz</strong>.
                     </p>
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Adım Adım Güncelleme Çalışma Akışı */}
+            {/* electron-updater Çalışma Döngüsü */}
             <div className="space-y-3">
               <h4 className="font-bold text-sm text-white font-mono uppercase tracking-wider">
-                Masaüstü Güncelleyici (Updater) Çalışma Mantığı:
+                electron-updater Çalışma Döngüsü:
               </h4>
 
               <div className="grid grid-cols-1 md:grid-cols-4 gap-3 text-xs font-mono">
                 <div className="p-3.5 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-1.5">
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">1</span>
-                  <div className="font-bold text-white">Sürüm Kontrolü</div>
+                  <div className="font-bold text-white">latest.yml Kontrolü</div>
                   <p className="text-[11px] text-gray-400">
-                    Uygulama arka planda veya kullanıcı butona basınca GitHub'daki `version.txt`'yi çeker.
+                    Uygulama GitHub Releases altındaki `latest.yml` dosyasını çekerek yeni sürüm ve dosya hash'lerini doğrular.
                   </p>
                 </div>
 
                 <div className="p-3.5 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-1.5">
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">2</span>
-                  <div className="font-bold text-white">Geçici İndirme</div>
+                  <div className="font-bold text-white">Kullanıcı Onayı</div>
                   <p className="text-[11px] text-gray-400">
-                    Yeni dosyalar önce <code className="text-orange-300">.update_temp/</code> klasörüne indirilir. İndirme kesilirse eski sürüm zarar görmez.
+                    Arayüzde "Yeni Sürüm Bulundu" kartı belirir. Kullanıcı "Şimdi Güncelle ve İndir" butonuna basar.
                   </p>
                 </div>
 
                 <div className="p-3.5 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-1.5">
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">3</span>
-                  <div className="font-bold text-white">Yedek & Üzerine Yazma</div>
+                  <div className="font-bold text-white">Arka Plan İndirme</div>
                   <p className="text-[11px] text-gray-400">
-                    İndirme tamamlanınca sadece kod dosyalarının üzerine yazılır. <code className="text-emerald-300">data/</code> klasörüne dokunulmaz.
+                    İndirme arka planda çalışırken kullanıcı programı kesintisiz kullanmaya devam edebilir.
                   </p>
                 </div>
 
                 <div className="p-3.5 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-1.5">
                   <span className="w-5 h-5 rounded-full bg-orange-500/20 text-orange-400 font-bold flex items-center justify-center text-[10px]">4</span>
-                  <div className="font-bold text-white">Yeniden Başlatma</div>
+                  <div className="font-bold text-white">quitAndInstall()</div>
                   <p className="text-[11px] text-gray-400">
-                    Uygulama kendini yeniden başlatır. Kullanıcı hiçbir veri kaybetmeden yeni sürümle devam eder.
+                    Uygulama kapanır, yeni sürüm 2 saniyede kurulur ve verileriniz korunarak program otomatik olarak açılır.
                   </p>
                 </div>
               </div>
@@ -833,17 +926,17 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
         </div>
       )}
 
-      {/* 3. TAB: VERSION.TXT NASIL ARTIRILIR? */}
-      {activeTab === 'guide' && (
+      {/* 3. TAB: GITHUB ACTIONS OTOMATİK RELEASE */}
+      {activeTab === 'actions' && (
         <div className="space-y-6">
           <div className="bg-[#161b22] border border-[#30363d] rounded-2xl p-5 sm:p-6 space-y-5">
             <div>
               <h3 className="text-lg font-bold text-white font-mono flex items-center space-x-2">
                 <FileCode className="w-5 h-5 text-orange-400" />
-                <span>Her Sürümde `version.txt` Nasıl Artırılır? (Rehber)</span>
+                <span>GitHub Actions ile Otomatik Windows EXE Release Oluşturma</span>
               </h3>
               <p className="text-xs text-gray-400 font-mono mt-1">
-                Uygulamanızın yeni güncellemeleri algılayabilmesi için GitHub reponuzdaki sürüm numarasını yönetme kılavuzu.
+                Deponuzdaki <code>.github/workflows/release.yml</code> iş akışı sayesinde her yeni sürüm otomatik derlenir.
               </p>
             </div>
 
@@ -852,34 +945,10 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
                 <div className="font-bold text-white flex items-center space-x-2">
                   <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">1</span>
-                  <span>Semantik Sürümleme (SemVer: MAJOR.MINOR.PATCH)</span>
+                  <span>version.txt Dosyasını Güncelleyin</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Sürüm numaralarınızı 3 haneli standart formatta artırınız:
-                </p>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pl-7 pt-1">
-                  <div className="p-2.5 bg-[#161b22] rounded-lg border border-[#30363d]">
-                    <div className="font-bold text-emerald-400">PATCH (1.0.0 → 1.0.1)</div>
-                    <div className="text-[11px] text-gray-400">Küçük hata düzeltmeleri ve iyileştirmeler için.</div>
-                  </div>
-                  <div className="p-2.5 bg-[#161b22] rounded-lg border border-[#30363d]">
-                    <div className="font-bold text-amber-400">MINOR (1.0.1 → 1.1.0)</div>
-                    <div className="text-[11px] text-gray-400">Yeni bir özellik eklendiğinde (örn: Yeni rapor ekranı).</div>
-                  </div>
-                  <div className="p-2.5 bg-[#161b22] rounded-lg border border-[#30363d]">
-                    <div className="font-bold text-rose-400">MAJOR (1.1.0 → 2.0.0)</div>
-                    <div className="text-[11px] text-gray-400">Tamamen yeni bir arayüz veya köklü mimari değişiminde.</div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
-                <div className="font-bold text-white flex items-center space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">2</span>
-                  <span>version.txt Dosyasını Düzenleme</span>
-                </div>
-                <p className="text-gray-400 pl-7 leading-relaxed">
-                  Projenizin ana dizinindeki veya <code className="text-orange-400">public/version.txt</code> dosyasını açın ve sadece yeni sürüm numarasını yazıp kaydedin:
+                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.1</code>):
                 </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 font-mono text-emerald-400">
                   1.0.1
@@ -888,29 +957,37 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
 
               <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
                 <div className="font-bold text-white flex items-center space-x-2">
-                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">3</span>
-                  <span>GitHub'a Gönderme (Commit & Push)</span>
+                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">2</span>
+                  <span>GitHub'a Push Edin (Değişikliği Gönderin)</span>
                 </div>
-                <p className="text-gray-400 pl-7 leading-relaxed">
-                  Terminalinizde aşağıdaki 3 komutu çalıştırarak değişikliği GitHub reponuza gönderin:
-                </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 space-y-1 font-mono text-gray-200">
-                  <div className="text-gray-500"># Değişiklikleri ekleyin</div>
-                  <div>git add version.txt public/version.txt</div>
-                  <div className="text-gray-500 mt-1"># Commit mesajı yazın</div>
-                  <div>git commit -m "chore: release v1.0.1"</div>
-                  <div className="text-gray-500 mt-1"># GitHub main dalına gönderin</div>
+                  <div>git add version.txt</div>
+                  <div>git commit -m "release: v1.0.1"</div>
                   <div className="text-orange-400">git push origin main</div>
                 </div>
               </div>
 
               <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
                 <div className="font-bold text-white flex items-center space-x-2">
+                  <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">3</span>
+                  <span>GitHub Actions Otomatik Olarak Ne Yapar?</span>
+                </div>
+                <ul className="text-gray-400 pl-7 space-y-1.5 list-disc list-inside">
+                  <li>Windows sunucusunda depoyu klonlar ve Node.js ortamını kurar.</li>
+                  <li><code>version.txt</code> sürümünü <code>package.json</code> ile senkronize eder.</li>
+                  <li><code>npm run build</code> ile React kodlarını derler.</li>
+                  <li><code>electron-builder --win --publish always</code> komutuyla Windows NSIS `.exe` kurulum dosyasını oluşturur.</li>
+                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.1</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
+                </ul>
+              </div>
+
+              <div className="p-4 bg-[#0d1117] border border-[#30363d] rounded-xl space-y-2">
+                <div className="font-bold text-white flex items-center space-x-2">
                   <span className="w-5 h-5 rounded-full bg-orange-500 text-white font-bold flex items-center justify-center text-[11px]">4</span>
-                  <span>Sonuç</span>
+                  <span>Masaüstü Kullanıcılarına Anında Bildirim</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Push işlemi bittiği anda uygulamadaki <strong>"Güncellemeleri Kontrol Et"</strong> butonu yeni sürümü anında görecek ve kullanıcıya tek tıkla <strong>"Şimdi Güncelle ve İndir"</strong> seçeneği sunacaktır.
+                  Release yayınlandığı anda, kurulu masaüstü uygulamasındaki <strong>"Güncellemeleri Kontrol Et"</strong> butonu veya arka plan kontrolü yeni sürümü anında görecek ve tek tıkla indirip uygulayacaktır.
                 </p>
               </div>
             </div>

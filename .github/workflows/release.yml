@@ -1,0 +1,61 @@
+name: Windows Exe Derle ve Release Yayınla
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'version.txt'
+      - 'package.json'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Windows EXE Derleme & GitHub Release
+    runs-on: windows-latest
+
+    steps:
+      - name: Depoyu Klonla (Checkout)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Node.js Ortamını Hazırla
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Bağımlılıkları Yükle
+        run: npm install
+
+      - name: Sürüm Numarasını version.txt ile Senkronize Et
+        shell: pwsh
+        run: |
+          if (Test-Path "version.txt") {
+            $ver = (Get-Content "version.txt").Trim()
+            Write-Host "version.txt dosyasından okunan sürüm: $ver"
+            
+            # package.json sürümünü güncelle
+            $pkg = Get-Content "package.json" -Raw | ConvertFrom-Json
+            $pkg.version = $ver
+            $pkg | ConvertTo-Json -Depth 10 | Set-Content "package.json"
+            Write-Host "package.json sürümü $ver olarak güncellendi."
+            
+            # public/version.txt dosyasını senkronize et
+            if (!(Test-Path "public")) { New-Item -ItemType Directory -Path "public" }
+            Set-Content -Path "public/version.txt" -Value $ver
+          } else {
+            Write-Host "version.txt bulunamadı, package.json sürümü korunuyor."
+          }
+
+      - name: Vite Arayüz Kodlarını Derle (React Build)
+        run: npm run build
+
+      - name: Electron Windows EXE Kurulum Dosyasını Derle ve Release Olarak Yayınla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx electron-builder --win --publish always
