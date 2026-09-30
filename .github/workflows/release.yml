@@ -28,6 +28,18 @@ jobs:
         with:
           node-version: 20
 
+      - name: Sürüm Etiketini (Tag) Oluştur
+        shell: pwsh
+        run: |
+          $ver = (Get-Content "version.txt").Trim()
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          $exists = git tag -l "v$ver"
+          if (-not $exists) {
+            git tag "v$ver"
+            git push origin "v$ver"
+          }
+
       - name: Bağımlılıkları Yükle
         run: npm install
 
