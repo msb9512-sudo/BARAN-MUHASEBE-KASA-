@@ -75,9 +75,25 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   const [isTransferModalOpen, setIsTransferModalOpen] = useState(false);
 
   // Filters
+  const [accountTypeFilter, setAccountTypeFilter] = useState<'all' | 'bank' | 'cash' | 'pos' | 'other'>('all');
   const [accountFilter, setAccountFilter] = useState<string>('all');
   const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'deposit' | 'withdrawal' | 'transfer'>('all');
   const [searchQuery, setSearchQuery] = useState('');
+
+  // UI feedback states
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [accountFormError, setAccountFormError] = useState<string | null>(null);
+  const [txFormError, setTxFormError] = useState<string | null>(null);
+  const [transferFormError, setTransferFormError] = useState<string | null>(null);
+  const [deleteConfirmAccount, setDeleteConfirmAccount] = useState<FinancialAccount | null>(null);
+  const [deleteConfirmTxId, setDeleteConfirmTxId] = useState<string | null>(null);
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg);
+    setTimeout(() => {
+      setToastMessage(null);
+    }, 3500);
+  };
 
   // Account form state
   const [accountFormData, setAccountFormData] = useState({
@@ -122,34 +138,49 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     return map;
   }, [accounts, expenses, accountTransactions, masterSafe]);
 
-  // Filter out Ana Kasa from AccountsView (Ana Kasa is exclusively managed in 6. Ana Kasa & Banknot Takibi)
-  const bankAccounts = useMemo(() => {
-    return accounts.filter((acc) => !acc.isDefault && acc.id !== 'ana-kasa' && acc.type !== 'cash');
-  }, [accounts]);
+  // All managed accounts filtered by category
+  const displayedAccounts = useMemo(() => {
+    return accounts.filter((acc) => {
+      if (accountTypeFilter === 'all') return true;
+      if (accountTypeFilter === 'bank') return acc.type === 'bank';
+      if (accountTypeFilter === 'cash') return acc.type === 'cash';
+      if (accountTypeFilter === 'pos') return acc.type === 'pos' || acc.type === 'credit_card';
+      if (accountTypeFilter === 'other') return acc.type === 'other';
+      return true;
+    });
+  }, [accounts, accountTypeFilter]);
 
-  // Overall aggregate stats for Bank & POS accounts
+  // Overall aggregate stats for accounts
   const aggregateStats = useMemo(() => {
+    let totalAllBalance = 0;
     let bankAccountsTotal = 0;
     let bankTotalDeposits = 0;
     let bankTotalExpenses = 0;
 
-    bankAccounts.forEach((acc) => {
+    accounts.forEach((acc) => {
       const bal = accountBalances.get(acc.id);
       if (bal) {
-        bankAccountsTotal += bal.currentBalance;
+        totalAllBalance += bal.currentBalance;
+        if (acc.type === 'bank' || acc.type === 'pos' || acc.type === 'credit_card') {
+          bankAccountsTotal += bal.currentBalance;
+        }
         bankTotalDeposits += bal.totalDeposits + bal.totalTransfersIn;
         bankTotalExpenses += bal.totalExpenses;
       }
     });
 
     return {
+      totalAllBalance,
       bankAccountsTotal,
       bankTotalDeposits,
       bankTotalExpenses,
-      bankCount: bankAccounts.filter((a) => a.type === 'bank').length,
-      posCount: bankAccounts.filter((a) => a.type === 'pos' || a.type === 'credit_card').length,
+      allCount: accounts.length,
+      bankCount: accounts.filter((a) => a.type === 'bank').length,
+      cashCount: accounts.filter((a) => a.type === 'cash').length,
+      posCount: accounts.filter((a) => a.type === 'pos' || a.type === 'credit_card').length,
+      otherCount: accounts.filter((a) => a.type === 'other').length,
     };
-  }, [bankAccounts, accountBalances]);
+  }, [accounts, accountBalances]);
 
   // Combined unified ledger entries (Transactions + Expenses)
   const unifiedLedger = useMemo(() => {
@@ -241,6 +272,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   // Handlers for Account Modal
   const handleOpenAddAccount = () => {
     setEditingAccount(null);
+    setAccountFormError(null);
     setAccountFormData({
       name: '',
       type: 'bank',
@@ -255,12 +287,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleOpenEditAccount = (acc: FinancialAccount) => {
     setEditingAccount(acc);
+    setAccountFormError(null);
     setAccountFormData({
       name: acc.name,
       type: acc.type,
       bankName: acc.bankName || '',
       accountNumber: acc.accountNumber || '',
-      initialBalance: acc.initialBalance.toString(),
+      initialBalance: acc.initialBalance ? acc.initialBalance.toString() : '',
       color: acc.color || '#3b82f6',
       notes: acc.notes || '',
     });
@@ -269,8 +302,9 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleSaveAccount = (e: React.FormEvent) => {
     e.preventDefault();
+    setAccountFormError(null);
     if (!accountFormData.name.trim()) {
-      alert('Lütfen geçerli bir hesap adı yazınız.');
+      setAccountFormError('Lütfen geçerli bir hesap adı yazınız.');
       return;
     }
 
@@ -288,6 +322,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         notes: accountFormData.notes.trim() || undefined,
         updatedAt: new Date().toISOString(),
       });
+      showToast(`"${accountFormData.name.trim()}" hesabı güncellendi.`);
     } else {
       onAddAccount({
         name: accountFormData.name.trim(),
@@ -298,6 +333,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         color: accountFormData.color,
         notes: accountFormData.notes.trim() || undefined,
       });
+      showToast(`"${accountFormData.name.trim()}" hesabı başarıyla açıldı.`);
     }
 
     setIsAccountModalOpen(false);
@@ -306,6 +342,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   // Handlers for Deposit / Withdrawal
   const handleOpenTxModal = (mode: 'deposit' | 'withdrawal', defaultAccId?: string) => {
     setTxMode(mode);
+    setTxFormError(null);
     const chosenAcc = defaultAccId || accounts[0]?.id || '';
     setSelectedAccountIdForTx(chosenAcc);
     setTxFormData({
@@ -323,19 +360,20 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleSaveTx = (e: React.FormEvent) => {
     e.preventDefault();
+    setTxFormError(null);
     const amountNum = parseNumberInput(txFormData.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Lütfen geçerli bir işlem tutarı giriniz.');
+      setTxFormError('Lütfen geçerli bir işlem tutarı giriniz.');
       return;
     }
     if (!txFormData.description.trim()) {
-      alert('Lütfen işlem açıklamasını yazınız.');
+      setTxFormError('Lütfen işlem açıklamasını yazınız.');
       return;
     }
 
     const acc = accounts.find((a) => a.id === (txFormData.accountId || selectedAccountIdForTx));
     if (!acc) {
-      alert('Lütfen bir hesap seçiniz.');
+      setTxFormError('Lütfen bir hesap seçiniz.');
       return;
     }
 
@@ -352,11 +390,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       notes: txFormData.notes.trim() || undefined,
     });
 
+    showToast(`${txMode === 'deposit' ? 'Para girişi' : 'Para çıkışı'} işlemi kaydedildi.`);
     setIsTxModalOpen(false);
   };
 
   // Handlers for Transfer (Virman)
   const handleOpenTransferModal = (fromAccId?: string) => {
+    setTransferFormError(null);
     const fromId = fromAccId || accounts[0]?.id || '';
     const otherAcc = accounts.find((a) => a.id !== fromId);
     setTransferFormData({
@@ -373,13 +413,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
   const handleSaveTransfer = (e: React.FormEvent) => {
     e.preventDefault();
+    setTransferFormError(null);
     const amountNum = parseNumberInput(transferFormData.amount);
     if (isNaN(amountNum) || amountNum <= 0) {
-      alert('Lütfen geçerli bir transfer tutarı giriniz.');
+      setTransferFormError('Lütfen geçerli bir transfer tutarı giriniz.');
       return;
     }
     if (transferFormData.fromAccountId === transferFormData.toAccountId) {
-      alert('Kaynak hesap ile hedef hesap aynı olamaz. Lütfen farklı iki hesap seçiniz.');
+      setTransferFormError('Kaynak hesap ile hedef hesap aynı olamaz. Lütfen farklı iki hesap seçiniz.');
       return;
     }
 
@@ -387,7 +428,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     const toAcc = accounts.find((a) => a.id === transferFormData.toAccountId);
 
     if (!fromAcc || !toAcc) {
-      alert('Lütfen hem kaynak hem de hedef hesabı seçiniz.');
+      setTransferFormError('Lütfen hem kaynak hem de hedef hesabı seçiniz.');
       return;
     }
 
@@ -407,6 +448,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       enteredBy: transferFormData.enteredBy.trim() || 'Kullanıcı',
     });
 
+    showToast(`Virman işlemi başarıyla tamamlandı: ${fromAcc.name} ➔ ${toAcc.name}`);
     setIsTransferModalOpen(false);
   };
 
@@ -566,171 +608,245 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         )}
       </div>
 
-      {/* Accounts Grid (Cards for Each Bank & POS Account Showing Remaining Balance) */}
+      {/* Accounts Grid (Cards for Each Account Showing Remaining Balance) */}
       <div>
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-sm font-bold text-white uppercase font-mono tracking-wider flex items-center gap-2">
-            <span>Açık Banka & POS Hesapları ve Kalan Bakiyeleri</span>
-            <span className="text-xs text-gray-400 font-normal">
-              (Gider girildiğinde seçilen hesaptan düşülür)
-            </span>
-          </h3>
-          <span className="text-xs text-gray-400 font-mono">
-            {bankAccounts.length} Hesap Listeleniyor
-          </span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+          <div>
+            <h3 className="text-sm font-bold text-white uppercase font-mono tracking-wider flex items-center gap-2">
+              <span>Hesap Listesi & Kalan Bakiyeleri</span>
+              <span className="text-xs text-gray-400 font-normal">
+                (Gider girildiğinde veya tahsilatta seçilen hesaptan düşülür/eklenir)
+              </span>
+            </h3>
+          </div>
+
+          {/* Account Category Filter Tabs */}
+          <div className="flex flex-wrap items-center gap-1 font-mono text-xs">
+            <button
+              onClick={() => setAccountTypeFilter('all')}
+              className={`px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                accountTypeFilter === 'all'
+                  ? 'bg-orange-500/20 text-orange-400 border-orange-500/40 font-bold'
+                  : 'bg-[#161b22] text-gray-400 border-[#30363d] hover:text-white'
+              }`}
+            >
+              Tümü ({aggregateStats.allCount})
+            </button>
+            <button
+              onClick={() => setAccountTypeFilter('bank')}
+              className={`px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                accountTypeFilter === 'bank'
+                  ? 'bg-sky-500/20 text-sky-400 border-sky-500/40 font-bold'
+                  : 'bg-[#161b22] text-gray-400 border-[#30363d] hover:text-white'
+              }`}
+            >
+              Banka ({aggregateStats.bankCount})
+            </button>
+            <button
+              onClick={() => setAccountTypeFilter('cash')}
+              className={`px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                accountTypeFilter === 'cash'
+                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40 font-bold'
+                  : 'bg-[#161b22] text-gray-400 border-[#30363d] hover:text-white'
+              }`}
+            >
+              Kasa & Nakit ({aggregateStats.cashCount})
+            </button>
+            <button
+              onClick={() => setAccountTypeFilter('pos')}
+              className={`px-2.5 py-1 rounded-lg border transition cursor-pointer ${
+                accountTypeFilter === 'pos'
+                  ? 'bg-purple-500/20 text-purple-400 border-purple-500/40 font-bold'
+                  : 'bg-[#161b22] text-gray-400 border-[#30363d] hover:text-white'
+              }`}
+            >
+              POS & Kart ({aggregateStats.posCount})
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {bankAccounts.map((acc) => {
-            const bal = accountBalances.get(acc.id) || {
-              initialBalance: 0,
-              totalDeposits: 0,
-              totalWithdrawals: 0,
-              totalTransfersIn: 0,
-              totalTransfersOut: 0,
-              totalExpenses: 0,
-              totalInflow: 0,
-              totalOutflow: 0,
-              currentBalance: 0,
-            };
+        {displayedAccounts.length === 0 ? (
+          <div className="bg-[#161b22] rounded-xl border border-dashed border-[#30363d] p-8 text-center space-y-3 font-mono">
+            <div className="w-12 h-12 rounded-full bg-[#21262d] flex items-center justify-center text-gray-400 mx-auto">
+              <Landmark className="w-6 h-6" />
+            </div>
+            <h4 className="text-white font-bold text-sm">Bu filtreye ait hesap bulunamadı</h4>
+            <p className="text-xs text-gray-400 max-w-md mx-auto">
+              Yeni bir banka vadesiz hesabı, nakit kasa veya POS hesabı tanımlayabilirsiniz.
+            </p>
+            <button
+              onClick={handleOpenAddAccount}
+              className="inline-flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-semibold px-4 py-2 rounded-lg shadow-md transition cursor-pointer"
+            >
+              <Plus className="w-4 h-4" />
+              <span>+ Yeni Hesap Aç</span>
+            </button>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {displayedAccounts.map((acc) => {
+              const bal = accountBalances.get(acc.id) || {
+                initialBalance: 0,
+                totalDeposits: 0,
+                totalWithdrawals: 0,
+                totalTransfersIn: 0,
+                totalTransfersOut: 0,
+                totalExpenses: 0,
+                totalInflow: 0,
+                totalOutflow: 0,
+                currentBalance: 0,
+              };
 
-            const isMainCash = acc.isDefault || acc.id === 'ana-kasa';
+              const isMainCash = acc.isDefault || acc.id === 'ana-kasa';
 
-            return (
-              <div
-                key={acc.id}
-                className="bg-[#161b22] rounded-xl border border-[#30363d] hover:border-gray-600 transition shadow-lg overflow-hidden flex flex-col justify-between"
-              >
-                {/* Account Card Header */}
-                <div className="p-4 border-b border-[#30363d]">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-center space-x-2.5">
-                      <div
-                        className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white shadow-inner shrink-0"
-                        style={{ backgroundColor: acc.color ? `${acc.color}25` : '#3b82f625', color: acc.color || '#3b82f6' }}
-                      >
-                        {getAccountTypeIcon(acc.type)}
-                      </div>
-                      <div>
-                        <div className="flex items-center space-x-2">
-                          <h4 className="text-base font-bold text-white tracking-tight">
-                            {acc.name}
-                          </h4>
-                          {isMainCash && (
-                            <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[10px] font-mono font-bold">
-                              VARSAYILAN
-                            </span>
-                          )}
-                        </div>
-                        <div className="flex items-center space-x-2 text-[11px] text-gray-400 font-mono mt-0.5">
-                          <span>{getAccountTypeLabel(acc.type)}</span>
-                          {acc.bankName && <span>• {acc.bankName}</span>}
-                          {acc.accountNumber && <span>• No: {acc.accountNumber}</span>}
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Edit & Delete Action Buttons */}
-                    <div className="flex items-center space-x-1 shrink-0">
-                      <button
-                        onClick={() => handleOpenEditAccount(acc)}
-                        className="p-1.5 text-gray-400 hover:text-white hover:bg-[#21262d] rounded transition cursor-pointer"
-                        title="Hesap Bilgilerini Düzenle"
-                      >
-                        <Edit2 className="w-3.5 h-3.5" />
-                      </button>
-                      {!isMainCash && (
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`"${acc.name}" hesabını silmek istediğinize emin misiniz?`)) {
-                              onDeleteAccount(acc.id);
-                            }
-                          }}
-                          className="p-1.5 text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
-                          title="Hesabı Sil"
+              return (
+                <div
+                  key={acc.id}
+                  className="bg-[#161b22] rounded-xl border border-[#30363d] hover:border-gray-600 transition shadow-lg overflow-hidden flex flex-col justify-between"
+                >
+                  {/* Account Card Header */}
+                  <div className="p-4 border-b border-[#30363d]">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center space-x-2.5">
+                        <div
+                          className="w-9 h-9 rounded-lg flex items-center justify-center font-bold text-white shadow-inner shrink-0"
+                          style={{ backgroundColor: acc.color ? `${acc.color}25` : '#3b82f625', color: acc.color || '#3b82f6' }}
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          {getAccountTypeIcon(acc.type)}
+                        </div>
+                        <div>
+                          <div className="flex items-center space-x-2">
+                            <h4 className="text-base font-bold text-white tracking-tight">
+                              {acc.name}
+                            </h4>
+                            {isMainCash && (
+                              <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[10px] font-mono font-bold">
+                                VARSAYILAN KASA
+                              </span>
+                            )}
+                          </div>
+                          <div className="flex items-center space-x-2 text-[11px] text-gray-400 font-mono mt-0.5">
+                            <span>{getAccountTypeLabel(acc.type)}</span>
+                            {acc.bankName && <span>• {acc.bankName}</span>}
+                            {acc.accountNumber && <span>• No: {acc.accountNumber}</span>}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Edit & Delete Action Buttons */}
+                      <div className="flex items-center space-x-1 shrink-0">
+                        <button
+                          onClick={() => handleOpenEditAccount(acc)}
+                          className="p-1.5 text-gray-400 hover:text-white hover:bg-[#21262d] rounded transition cursor-pointer"
+                          title="Hesap Bilgilerini Düzenle"
+                        >
+                          <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* Account Balance Body */}
-                <div className="p-4 space-y-3 font-mono">
-                  {/* Big Remaining Balance Display */}
-                  <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
-                    <div className="text-[11px] text-gray-400 font-semibold uppercase flex items-center justify-between">
-                      <span>KALAN PARASI / BAKİYE</span>
-                      <span className={`text-[10px] px-1.5 py-0.2 rounded ${bal.currentBalance >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                        {bal.currentBalance >= 0 ? 'Pozitif Bakiye' : 'Eksi Bakiye'}
-                      </span>
-                    </div>
-                    <div className={`text-2xl font-black mt-1 ${bal.currentBalance >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                      {formatCurrency(bal.currentBalance)}
+                        {!isMainCash && (
+                          <button
+                            onClick={() => setDeleteConfirmAccount(acc)}
+                            className="p-1.5 text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
+                            title="Hesabı Sil"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
 
-                  {/* Financial Breakdown */}
-                  <div className="grid grid-cols-2 gap-2 text-[11px]">
-                    <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
-                      <span className="text-gray-400 block text-[10px]">Başlangıç Bakiyesi:</span>
-                      <span className="font-semibold text-gray-300">{formatCurrency(bal.initialBalance)}</span>
+                  {/* Account Balance Body */}
+                  <div className="p-4 space-y-3 font-mono">
+                    {/* Big Remaining Balance Display */}
+                    <div className="bg-[#0d1117] p-3 rounded-lg border border-[#30363d]">
+                      <div className="text-[11px] text-gray-400 font-semibold uppercase flex items-center justify-between">
+                        <span>KALAN PARASI / BAKİYE</span>
+                        <span className={`text-[10px] px-1.5 py-0.2 rounded ${bal.currentBalance >= 0 ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                          {bal.currentBalance >= 0 ? 'Pozitif Bakiye' : 'Eksi Bakiye'}
+                        </span>
+                      </div>
+                      <div className={`text-2xl font-black mt-1 ${bal.currentBalance >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                        {formatCurrency(bal.currentBalance)}
+                      </div>
                     </div>
 
-                    <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
-                      <span className="text-gray-400 block text-[10px]">Toplam Giriş (+):</span>
-                      <span className="font-semibold text-emerald-400">+{formatCurrency(bal.totalDeposits + bal.totalTransfersIn)}</span>
+                    {/* Financial Breakdown */}
+                    <div className="grid grid-cols-2 gap-2 text-[11px]">
+                      <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
+                        <span className="text-gray-400 block text-[10px]">Başlangıç Bakiyesi:</span>
+                        <span className="font-semibold text-gray-300">{formatCurrency(bal.initialBalance)}</span>
+                      </div>
+
+                      <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
+                        <span className="text-gray-400 block text-[10px]">Toplam Giriş (+):</span>
+                        <span className="font-semibold text-emerald-400">+{formatCurrency(bal.totalDeposits + bal.totalTransfersIn)}</span>
+                      </div>
+
+                      <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
+                        <span className="text-gray-400 block text-[10px]">Gider Çıkışları (-):</span>
+                        <span className="font-semibold text-rose-400">-{formatCurrency(bal.totalExpenses)}</span>
+                      </div>
+
+                      <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
+                        <span className="text-gray-400 block text-[10px]">Para Çekim / Virman (-):</span>
+                        <span className="font-semibold text-amber-400">-{formatCurrency(bal.totalWithdrawals + bal.totalTransfersOut)}</span>
+                      </div>
                     </div>
 
-                    <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
-                      <span className="text-gray-400 block text-[10px]">Gider Çıkışları (-):</span>
-                      <span className="font-semibold text-rose-400">-{formatCurrency(bal.totalExpenses)}</span>
-                    </div>
-
-                    <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
-                      <span className="text-gray-400 block text-[10px]">Para Çekim / Virman (-):</span>
-                      <span className="font-semibold text-amber-400">-{formatCurrency(bal.totalWithdrawals + bal.totalTransfersOut)}</span>
-                    </div>
+                    {acc.notes && (
+                      <p className="text-[11px] text-gray-400 italic bg-[#0d1117] p-2 rounded border border-[#21262d]">
+                        Not: {acc.notes}
+                      </p>
+                    )}
                   </div>
 
-                  {acc.notes && (
-                    <p className="text-[11px] text-gray-400 italic bg-[#0d1117] p-2 rounded border border-[#21262d]">
-                      Not: {acc.notes}
-                    </p>
-                  )}
+                  {/* Account Quick Buttons Footer */}
+                  <div className="p-3 bg-[#12161c] border-t border-[#30363d] flex items-center justify-between gap-1.5 font-mono text-xs">
+                    <button
+                      onClick={() => handleOpenTxModal('deposit', acc.id)}
+                      className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-emerald-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Para Yatır</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleOpenTxModal('withdrawal', acc.id)}
+                      className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-rose-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                      <span>Para Çek</span>
+                    </button>
+
+                    <button
+                      onClick={() => handleOpenTransferModal(acc.id)}
+                      className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-sky-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
+                    >
+                      <ArrowRightLeft className="w-3.5 h-3.5" />
+                      <span>Virman</span>
+                    </button>
+                  </div>
                 </div>
+              );
+            })}
 
-                {/* Account Quick Buttons Footer */}
-                <div className="p-3 bg-[#12161c] border-t border-[#30363d] flex items-center justify-between gap-1.5 font-mono text-xs">
-                  <button
-                    onClick={() => handleOpenTxModal('deposit', acc.id)}
-                    className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-emerald-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>Para Yatır</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleOpenTxModal('withdrawal', acc.id)}
-                    className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-rose-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
-                  >
-                    <Minus className="w-3.5 h-3.5" />
-                    <span>Para Çek</span>
-                  </button>
-
-                  <button
-                    onClick={() => handleOpenTransferModal(acc.id)}
-                    className="flex-1 flex items-center justify-center space-x-1 bg-[#21262d] hover:bg-[#2d333b] text-sky-400 py-1.5 px-2 rounded border border-[#30363d] transition cursor-pointer font-semibold"
-                  >
-                    <ArrowRightLeft className="w-3.5 h-3.5" />
-                    <span>Virman</span>
-                  </button>
-                </div>
+            {/* Direct Add Account Card at End of Grid */}
+            <button
+              onClick={handleOpenAddAccount}
+              className="border-2 border-dashed border-[#30363d] hover:border-orange-500/60 rounded-xl p-6 flex flex-col items-center justify-center gap-2.5 text-gray-400 hover:text-orange-400 transition bg-[#161b22]/40 hover:bg-[#161b22] min-h-[220px] cursor-pointer group shadow-sm"
+            >
+              <div className="w-12 h-12 rounded-full bg-[#21262d] group-hover:bg-orange-500/20 flex items-center justify-center text-gray-400 group-hover:text-orange-400 transition">
+                <Plus className="w-6 h-6" />
               </div>
-            );
-          })}
-        </div>
+              <span className="font-bold text-sm text-gray-200 group-hover:text-white font-mono">
+                + Yeni Hesap Tanımla
+              </span>
+              <span className="text-xs text-gray-500 font-mono text-center max-w-[200px]">
+                Banka, Nakit Kasa, POS veya Kredi Kartı hesabı açın
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Unified Transaction & Expense Ledger Table */}
@@ -878,11 +994,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       <td className="py-3 px-4 text-center whitespace-nowrap">
                         {!isExp && item.rawTransactionId ? (
                           <button
-                            onClick={() => {
-                              if (window.confirm('Bu hareketi silmek istediğinize emin misiniz?')) {
-                                onDeleteTransaction(item.rawTransactionId!);
-                              }
-                            }}
+                            onClick={() => setDeleteConfirmTxId(item.rawTransactionId!)}
                             className="p-1 text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
                             title="Hareketi Sil"
                           >
@@ -917,7 +1029,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   {editingAccount ? 'Hesabı Düzenle' : 'Yeni Hesap Aç'}
                 </h3>
                 <span className="text-xs text-gray-400 font-mono">
-                  Kasa, banka veya POS hesabı tanımlayın
+                  Banka, Kasa, POS veya Kredi Kartı hesabı tanımlayın
                 </span>
               </div>
               <button
@@ -927,6 +1039,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 ✕
               </button>
             </div>
+
+            {accountFormError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2 font-mono">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{accountFormError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveAccount} className="space-y-4 text-xs font-mono">
               <div>
@@ -938,7 +1057,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   required
                   placeholder="Örn: Ziraat Bankası, Garanti POS, Şirket Kredi Kartı, Yedek Kasa"
                   value={accountFormData.name}
-                  onChange={(e) => setAccountFormData({ ...accountFormData, name: e.target.value })}
+                  onChange={(e) => {
+                    setAccountFormData({ ...accountFormData, name: e.target.value });
+                    if (accountFormError) setAccountFormError(null);
+                  }}
                   className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none font-sans"
                 />
               </div>
@@ -950,7 +1072,15 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   </label>
                   <select
                     value={accountFormData.type}
-                    onChange={(e) => setAccountFormData({ ...accountFormData, type: e.target.value as AccountType })}
+                    onChange={(e) => {
+                      const newType = e.target.value as AccountType;
+                      let autoColor = '#3b82f6';
+                      if (newType === 'cash') autoColor = '#f97316';
+                      else if (newType === 'pos') autoColor = '#8b5cf6';
+                      else if (newType === 'credit_card') autoColor = '#10b981';
+                      else if (newType === 'other') autoColor = '#64748b';
+                      setAccountFormData({ ...accountFormData, type: newType, color: autoColor });
+                    }}
                     className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-gray-200 focus:border-orange-500 focus:outline-none"
                   >
                     <option value="bank">Banka Hesabı</option>
@@ -993,12 +1123,54 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   <label className="block font-semibold text-gray-300 mb-1">
                     Başlangıç Bakiyesi (TL)
                   </label>
-                  <SmartMoneyInput
-                    value={accountFormData.initialBalance}
-                    onChange={(val) => setAccountFormData({ ...accountFormData, initialBalance: val.toString() })}
-                    placeholder="0,00"
-                    className="px-3 py-2 text-sm font-bold text-emerald-400 focus:border-orange-500"
-                  />
+                  <div className="relative">
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      placeholder="0,00"
+                      value={accountFormData.initialBalance}
+                      onChange={(e) => {
+                        const val = e.target.value.replace(/[^0-9.,]/g, '');
+                        setAccountFormData({ ...accountFormData, initialBalance: val });
+                      }}
+                      className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-emerald-400 font-bold font-mono focus:border-orange-500 focus:outline-none pr-8"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-bold text-gray-400 font-mono pointer-events-none">
+                      ₺
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Color Selection Palette */}
+              <div>
+                <label className="block font-semibold text-gray-300 mb-1.5">
+                  Hesap Rozet Rengi
+                </label>
+                <div className="flex items-center gap-2">
+                  {[
+                    { hex: '#3b82f6', label: 'Banka Mavisi' },
+                    { hex: '#f97316', label: 'Kasa Turuncusu' },
+                    { hex: '#10b981', label: 'Finans Yeşili' },
+                    { hex: '#8b5cf6', label: 'POS Moru' },
+                    { hex: '#f59e0b', label: 'Amber / Altın' },
+                    { hex: '#ef4444', label: 'Kırmızı' },
+                  ].map((c) => (
+                    <button
+                      key={c.hex}
+                      type="button"
+                      onClick={() => setAccountFormData({ ...accountFormData, color: c.hex })}
+                      title={c.label}
+                      className={`w-7 h-7 rounded-full border-2 transition cursor-pointer flex items-center justify-center ${
+                        accountFormData.color === c.hex ? 'border-white scale-110 shadow-lg' : 'border-transparent opacity-75 hover:opacity-100 hover:scale-105'
+                      }`}
+                      style={{ backgroundColor: c.hex }}
+                    >
+                      {accountFormData.color === c.hex && (
+                        <CheckCircle2 className="w-3.5 h-3.5 text-white" />
+                      )}
+                    </button>
+                  ))}
                 </div>
               </div>
 
@@ -1055,6 +1227,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 ✕
               </button>
             </div>
+
+            {txFormError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{txFormError}</span>
+              </div>
+            )}
 
             <form onSubmit={handleSaveTx} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
@@ -1201,6 +1380,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               </button>
             </div>
 
+            {transferFormError && (
+              <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 shrink-0" />
+                <span>{transferFormError}</span>
+              </div>
+            )}
+
             <form onSubmit={handleSaveTransfer} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1295,6 +1481,84 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Delete Account */}
+      {deleteConfirmAccount && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-sm p-5 shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center space-x-2.5 text-rose-400">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-white text-base">Hesabı Sil</h4>
+            </div>
+            <p className="text-xs text-gray-300">
+              <strong className="text-white">"{deleteConfirmAccount.name}"</strong> hesabını silmek istediğinize emin misiniz?
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#30363d]">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmAccount(null)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-semibold cursor-pointer border border-[#30363d]"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteAccount(deleteConfirmAccount.id);
+                  showToast(`"${deleteConfirmAccount.name}" hesabı silindi.`);
+                  setDeleteConfirmAccount(null);
+                }}
+                className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow cursor-pointer"
+              >
+                Evet, Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmation Modal: Delete Transaction */}
+      {deleteConfirmTxId && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50">
+          <div className="bg-[#161b22] rounded-xl border border-[#30363d] w-full max-w-sm p-5 shadow-2xl space-y-4 font-mono">
+            <div className="flex items-center space-x-2.5 text-rose-400">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              <h4 className="font-bold text-white text-base">Hareketi Sil</h4>
+            </div>
+            <p className="text-xs text-gray-300">
+              Bu hesap hareketini silmek istediğinize emin misiniz?
+            </p>
+            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-[#30363d]">
+              <button
+                type="button"
+                onClick={() => setDeleteConfirmTxId(null)}
+                className="px-3.5 py-1.5 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 text-xs font-semibold cursor-pointer border border-[#30363d]"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onDeleteTransaction(deleteConfirmTxId);
+                  showToast('Hesap hareketi silindi.');
+                  setDeleteConfirmTxId(null);
+                }}
+                className="px-4 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold shadow cursor-pointer"
+              >
+                Evet, Sil
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Toast Notification */}
+      {toastMessage && (
+        <div className="fixed bottom-6 right-6 z-50 bg-[#161b22] border border-emerald-500/50 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2 font-mono text-xs animate-bounce">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{toastMessage}</span>
         </div>
       )}
     </div>

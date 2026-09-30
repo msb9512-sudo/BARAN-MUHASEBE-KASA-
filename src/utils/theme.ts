@@ -336,6 +336,10 @@ export function applyThemeToDOM(settings: AppThemeSettings): void {
   const selectedFont = FONT_OPTIONS.find((f) => f.id === settings.fontFamilyId);
   if (selectedFont) {
     root.style.setProperty('--app-font-family', selectedFont.family);
+    if (document.body) {
+      document.body.style.setProperty('--app-font-family', selectedFont.family);
+      document.body.style.fontFamily = selectedFont.family;
+    }
   }
 
   // Apply font size scale
@@ -351,5 +355,11 @@ export function applyThemeToDOM(settings: AppThemeSettings): void {
     root.style.setProperty('--app-accent-hover', selectedAccent.hoverHex);
     root.style.setProperty('--app-accent-bg', selectedAccent.bgHex);
     root.style.setProperty('--app-accent-border', selectedAccent.borderHex);
+    if (document.body) {
+      document.body.style.setProperty('--app-accent-color', selectedAccent.hex);
+      document.body.style.setProperty('--app-accent-hover', selectedAccent.hoverHex);
+      document.body.style.setProperty('--app-accent-bg', selectedAccent.bgHex);
+      document.body.style.setProperty('--app-accent-border', selectedAccent.borderHex);
+    }
   }
 }

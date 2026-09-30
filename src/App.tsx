@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import {
   loadAppState,
   saveAppState,
+  saveAccounts,
   resetToSampleData,
   resetAllFinancialData,
   resetSingleDayData,
@@ -357,24 +358,36 @@ export function App() {
       id: `acc-${Date.now()}`,
       createdAt: new Date().toISOString(),
     };
-    setAppState((prev) => ({
-      ...prev,
-      accounts: [...(prev.accounts || []), newAccount],
-    }));
+    setAppState((prev) => {
+      const updatedAccounts = [...(prev.accounts || []), newAccount];
+      saveAccounts(updatedAccounts);
+      return {
+        ...prev,
+        accounts: updatedAccounts,
+      };
+    });
   };
 
   const handleUpdateAccount = (updated: FinancialAccount) => {
-    setAppState((prev) => ({
-      ...prev,
-      accounts: (prev.accounts || []).map((a) => (a.id === updated.id ? updated : a)),
-    }));
+    setAppState((prev) => {
+      const updatedAccounts = (prev.accounts || []).map((a) => (a.id === updated.id ? updated : a));
+      saveAccounts(updatedAccounts);
+      return {
+        ...prev,
+        accounts: updatedAccounts,
+      };
+    });
   };
 
   const handleDeleteAccount = (id: string) => {
-    setAppState((prev) => ({
-      ...prev,
-      accounts: (prev.accounts || []).filter((a) => a.id !== id),
-    }));
+    setAppState((prev) => {
+      const updatedAccounts = (prev.accounts || []).filter((a) => a.id !== id);
+      saveAccounts(updatedAccounts);
+      return {
+        ...prev,
+        accounts: updatedAccounts,
+      };
+    });
   };
 
   const handleAddAccountTransaction = (txData: Omit<AccountTransaction, 'id' | 'createdAt'>) => {

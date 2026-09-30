@@ -89,8 +89,8 @@ export const ThemeAppearanceSettings: React.FC<ThemeAppearanceSettingsProps> = (
   const showSuccessToast = () => {
     setSavedSuccess(true);
     setTimeout(() => {
-      setSavedSuccess(false), 2200;
-    });
+      setSavedSuccess(false);
+    }, 2200);
   };
 
   const currentTheme = THEME_OPTIONS.find((t) => t.id === themeSettings.themeId) || THEME_OPTIONS[0];
@@ -387,9 +387,18 @@ export const ThemeAppearanceSettings: React.FC<ThemeAppearanceSettingsProps> = (
                   key={accent.id}
                   id={`accent-color-${accent.id}`}
                   onClick={() => handleUpdateAccent(accent.id)}
+                  style={
+                    isSelected
+                      ? {
+                          borderColor: accent.hex,
+                          backgroundColor: `${accent.hex}18`,
+                          boxShadow: `0 0 12px ${accent.hex}30`,
+                        }
+                      : {}
+                  }
                   className={`p-2.5 rounded-xl text-left transition cursor-pointer border flex flex-col items-center justify-center space-y-1.5 ${
                     isSelected
-                      ? 'bg-[#21262d] border-orange-500 shadow-md ring-1 ring-orange-500'
+                      ? 'shadow-md ring-1'
                       : 'bg-[#0d1117] hover:bg-[#21262d] border-[#30363d]'
                   }`}
                 >
@@ -399,7 +408,10 @@ export const ThemeAppearanceSettings: React.FC<ThemeAppearanceSettingsProps> = (
                   >
                     {isSelected && <Check className="w-3.5 h-3.5 text-white stroke-[3]" />}
                   </div>
-                  <span className="text-[11px] font-mono text-gray-200 truncate font-semibold">
+                  <span
+                    className="text-[11px] font-mono truncate font-semibold"
+                    style={isSelected ? { color: accent.hex } : { color: '#e2e8f0' }}
+                  >
                     {accent.name}
                   </span>
                 </button>

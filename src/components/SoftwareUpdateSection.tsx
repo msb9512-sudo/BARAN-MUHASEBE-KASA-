@@ -35,7 +35,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
   // Local version state
-  const [currentVersion, setCurrentVersion] = useState<string>('1.0.0');
+  const [currentVersion, setCurrentVersion] = useState<string>('1.0.2');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
   const [userDataPath, setUserDataPath] = useState<string | null>(null);
 
@@ -948,10 +948,10 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>version.txt Dosyasını Güncelleyin</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.1</code>):
+                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.2</code>):
                 </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 font-mono text-emerald-400">
-                  1.0.1
+                  1.0.2
                 </div>
               </div>
 
@@ -962,7 +962,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 </div>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 space-y-1 font-mono text-gray-200">
                   <div>git add version.txt</div>
-                  <div>git commit -m "release: v1.0.1"</div>
+                  <div>git commit -m "release: v1.0.2"</div>
                   <div className="text-orange-400">git push origin main</div>
                 </div>
               </div>
@@ -977,7 +977,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <li><code>version.txt</code> sürümünü <code>package.json</code> ile senkronize eder.</li>
                   <li><code>npm run build</code> ile React kodlarını derler.</li>
                   <li><code>electron-builder --win --publish always</code> komutuyla Windows NSIS `.exe` kurulum dosyasını oluşturur.</li>
-                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.1</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
+                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.2</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
                 </ul>
               </div>
 
