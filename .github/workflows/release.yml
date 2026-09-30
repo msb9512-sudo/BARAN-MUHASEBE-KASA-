@@ -28,9 +28,12 @@ jobs:
         with:
           node-version: 20
 
-      - name: Sürüm Etiketini (Tag) Oluştur
+      - name: Sürüm Etiketi ve Release Oluştur
         shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          $ErrorActionPreference = 'Continue'
           $ver = (Get-Content "version.txt").Trim()
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -38,6 +41,10 @@ jobs:
           if (-not $exists) {
             git tag "v$ver"
             git push origin "v$ver"
+          }
+          gh release view "v$ver" *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create "v$ver" --title "v$ver" --notes "Baran Muhasebe Kasa v$ver"
           }
 
       - name: Bağımlılıkları Yükle
