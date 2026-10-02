@@ -5,6 +5,7 @@ import {
   PosZReportItem,
   AuditWarning,
   MonthlySummary,
+  SupplierGroup,
 } from '../types';
 
 /**
@@ -406,3 +407,198 @@ export function calculateMonthlySummary(
     dailyRows,
   };
 }
+
+/**
+ * Ortak fatura tutarları yardımcı fonksiyonu:
+ * - netAmount varsa: net = netAmount, kdv = vatAmount, kdvDahil = totalAmount.
+ * - netAmount yoksa (eski kayıt): net = totalAmount, kdv = vatAmount, kdvDahil = totalAmount + vatAmount, isOldRecord = true.
+ * - Kalan borç her zaman: totalAmount - ödenen (mevcut sistem).
+ */
+export interface InvoiceAmounts {
+  netAmount: number;
+  vatAmount: number;
+  totalWithVat: number; // KDV dahil
+  paidAmount: number;
+  remainingDebt: number;
+  isOldRecord: boolean;
+}
+
+export function getInvoiceAmounts(inv: Invoice): InvoiceAmounts {
+  const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+  const isOld = inv.netAmount === undefined || inv.netAmount === null;
+  const paid = round2(inv.payments?.reduce((s, p) => s + (Number(p.amount) || 0), 0) || 0);
+
+  let net: number;
+  const vat = round2(Number(inv.vatAmount) || 0);
+  let totalWithVat: number;
+
+  if (!isOld) {
+    net = round2(Number(inv.netAmount) || 0);
+    totalWithVat = round2(Number(inv.totalAmount) || 0);
+  } else {
+    net = round2(Number(inv.totalAmount) || 0);
+    totalWithVat = round2(net + vat);
+  }
+
+  const remaining = round2(Math.max(0, (Number(inv.totalAmount) || 0) - paid));
+
+  return {
+    netAmount: net,
+    vatAmount: vat,
+    totalWithVat,
+    paidAmount: paid,
+    remainingDebt: remaining,
+    isOldRecord: isOld,
+  };
+}
+
+/**
+ * Normalizes supplier company name:
+ * Trims leading/trailing whitespace, collapses consecutive spaces into one,
+ * ignores Turkish upper/lowercase differences.
+ */
+export function normalizeSupplierName(name?: string): string {
+  if (!name) return '';
+  return name
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase('tr-TR');
+}
+
+/**
+ * Clean tax number / VKN:
+ * Removes spaces and trims.
+ */
+export function cleanTaxNumber(taxNo?: string): string {
+  if (!taxNo) return '';
+  return taxNo.trim().replace(/\s+/g, '');
+}
+
+/**
+ * Groups active invoices into Supplier groups:
+ * - Groups by VKN if present, otherwise by normalized company name.
+ * - Same VKN with different names merges into a single supplier (displays the latest name).
+ * - Invoice without VKN merges into an existing VKN group if their normalized names match.
+ */
+export function groupInvoicesBySupplier(invoices: Invoice[]): SupplierGroup[] {
+  const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+  const activeInvoices = invoices.filter((i) => i.isActive && i.supplierName && i.supplierName.trim());
+
+  // Sort descending by date, then createdAt
+  const sorted = [...activeInvoices].sort((a, b) => {
+    const dComp = (b.date || '').localeCompare(a.date || '');
+    if (dComp !== 0) return dComp;
+    return (b.createdAt || '').localeCompare(a.createdAt || '');
+  });
+
+  interface Cluster {
+    id: string;
+    names: Set<string>;
+    vkns: Set<string>;
+    latestName: string;
+    latestVkn?: string;
+    latestDate: string;
+    invoices: Invoice[];
+  }
+
+  const clusters: Cluster[] = [];
+  const vknToCluster = new Map<string, Cluster>();
+  const nameToCluster = new Map<string, Cluster>();
+
+  for (const inv of sorted) {
+    const vkn = cleanTaxNumber(inv.taxNumber);
+    const normName = normalizeSupplierName(inv.supplierName);
+
+    let cluster: Cluster | undefined = undefined;
+
+    if (vkn && vknToCluster.has(vkn)) {
+      cluster = vknToCluster.get(vkn);
+    }
+
+    if (normName && nameToCluster.has(normName)) {
+      const nameCluster = nameToCluster.get(normName)!;
+      if (!cluster) {
+        cluster = nameCluster;
+      } else if (cluster !== nameCluster) {
+        // Merge nameCluster into cluster
+        nameCluster.invoices.forEach((i) => cluster!.invoices.push(i));
+        nameCluster.names.forEach((n) => {
+          cluster!.names.add(n);
+          nameToCluster.set(n, cluster!);
+        });
+        nameCluster.vkns.forEach((v) => {
+          cluster!.vkns.add(v);
+          vknToCluster.set(v, cluster!);
+        });
+        const idx = clusters.indexOf(nameCluster);
+        if (idx !== -1) clusters.splice(idx, 1);
+      }
+    }
+
+    if (!cluster) {
+      cluster = {
+        id: vkn ? `vkn-${vkn}` : `name-${normName}`,
+        names: new Set(),
+        vkns: new Set(),
+        latestName: inv.supplierName.trim(),
+        latestVkn: vkn || undefined,
+        latestDate: inv.date || '',
+        invoices: [],
+      };
+      clusters.push(cluster);
+    }
+
+    cluster.invoices.push(inv);
+
+    if (normName) {
+      cluster.names.add(normName);
+      nameToCluster.set(normName, cluster);
+    }
+    if (vkn) {
+      cluster.vkns.add(vkn);
+      vknToCluster.set(vkn, cluster);
+      if (!cluster.latestVkn) {
+        cluster.latestVkn = vkn;
+      }
+    }
+    if (!cluster.latestName) {
+      cluster.latestName = inv.supplierName.trim();
+    }
+  }
+
+  return clusters.map((c) => {
+    let netSum = 0;
+    let vatSum = 0;
+    let totalWithVatSum = 0;
+    let paidSum = 0;
+    let debtSum = 0;
+    let maxDate = '';
+
+    c.invoices.forEach((inv) => {
+      const amounts = getInvoiceAmounts(inv);
+      netSum += amounts.netAmount;
+      vatSum += amounts.vatAmount;
+      totalWithVatSum += amounts.totalWithVat;
+      paidSum += amounts.paidAmount;
+      debtSum += amounts.remainingDebt;
+      if (!maxDate || (inv.date && inv.date > maxDate)) {
+        maxDate = inv.date;
+      }
+    });
+
+    return {
+      id: c.id,
+      name: c.latestName || 'İsimsiz Tedarikçi',
+      taxNumber: c.latestVkn,
+      invoiceCount: c.invoices.length,
+      totalAmount: round2(totalWithVatSum),
+      netAmount: round2(netSum),
+      vatAmount: round2(vatSum),
+      paidAmount: round2(paidSum),
+      remainingDebt: round2(debtSum),
+      lastTransactionDate: maxDate || c.latestDate,
+      invoices: c.invoices,
+    };
+  });
+}
+

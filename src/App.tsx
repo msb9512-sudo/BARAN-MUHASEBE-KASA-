@@ -31,6 +31,7 @@ import { VegaGroupReportView } from './components/VegaGroupReportView';
 import { CashExpensesView } from './components/CashExpensesView';
 import { AccountsView } from './components/AccountsView';
 import { InvoicesView } from './components/InvoicesView';
+import { SuppliersView } from './components/SuppliersView';
 import { OpenAccountsView } from './components/OpenAccountsView';
 import { DailyClosingView } from './components/DailyClosingView';
 import { MasterSafeVaultView } from './components/MasterSafeVaultView';
@@ -576,6 +577,13 @@ export function App() {
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onAddPayment={handleAddPayment}
+              onNavigate={(tab) => setActiveTab(tab)}
+            />
+          )}
+
+          {activeTab === 'suppliers' && (
+            <SuppliersView
+              invoices={appState.invoices}
               onNavigate={(tab) => setActiveTab(tab)}
             />
           )}

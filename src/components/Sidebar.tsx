@@ -238,6 +238,13 @@ export const NAVIGATION_GROUPS: NavGroup[] = [
         description: 'Tedarikçi faturaları ve ürün bazlı takip',
       },
       {
+        id: 'suppliers',
+        label: 'Tedarikçi Firmalar',
+        shortLabel: 'Tedarikçiler',
+        icon: Building2,
+        description: 'Faturalardan derlenen firma borç ve alım dökümü',
+      },
+      {
         id: 'closing',
         label: '5. Günlük Kasa Kapanışı',
         shortLabel: 'Kasa Kapanış',

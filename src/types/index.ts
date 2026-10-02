@@ -4,6 +4,7 @@ export type TabType =
   | 'groups'
   | 'expenses'
   | 'invoices'
+  | 'suppliers'
   | 'openAccounts'
   | 'closing'
   | 'vault'
@@ -255,7 +256,8 @@ export interface Invoice {
   invoiceNo: string;
   supplierName: string;
   taxNumber?: string;
-  totalAmount: number;
+  netAmount?: number; // KDV Hariç Tutar
+  totalAmount: number; // KDV Dahil Genel Toplam
   vatAmount: number;
   vatRate: number; // Karışık veya genel oran
   dueDate: string; // Vade Tarihi
@@ -267,6 +269,20 @@ export interface Invoice {
   payments: InvoicePayment[];
   isActive: boolean;
   createdAt: string;
+}
+
+export interface SupplierGroup {
+  id: string;
+  name: string;
+  taxNumber?: string;
+  invoiceCount: number;
+  totalAmount: number; // KDV Dahil toplam alım
+  netAmount: number; // KDV Hariç toplam
+  vatAmount: number; // KDV toplamı
+  paidAmount: number;
+  remainingDebt: number;
+  lastTransactionDate: string;
+  invoices: Invoice[];
 }
 
 export interface RestaurantProfile {

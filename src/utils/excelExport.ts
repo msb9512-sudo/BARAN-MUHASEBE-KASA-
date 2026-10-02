@@ -195,17 +195,19 @@ export function exportMonthlyReportToExcel(
   // 2. Invoices of the month
   const monthInvoices = invoices.filter((i) => i.isActive && i.date.startsWith(month));
   const invoiceRows = [
-    ['Tarih', 'Fatura No', 'Firma Adı', 'Kategori', 'Fatura Tutarı', 'KDV', 'Ödenen', 'Kalan Bakiye', 'Durum', 'Vade'],
+    ['Tarih', 'Fatura No', 'Firma Adı', 'Kategori', 'KDV Hariç Tutar', 'KDV Tutarı', 'KDV Dahil Toplam', 'Ödenen', 'Kalan Bakiye', 'Durum', 'Vade'],
     ...monthInvoices.map((inv) => {
       const paid = inv.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, inv.totalAmount - paid);
+      const net = inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount;
       return [
         formatDateTR(inv.date),
         inv.invoiceNo,
         inv.supplierName,
         inv.category,
+        net,
+        inv.vatAmount || 0,
         inv.totalAmount,
-        inv.vatAmount,
         paid,
         remaining,
         inv.paymentStatus === 'paid' ? 'Ödendi' : inv.paymentStatus === 'partial' ? 'Kısmi Ödendi' : 'Ödenmedi',
@@ -232,8 +234,9 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     'Tedarikçi / Firma',
     'Vergi No',
     'Kategori',
-    'Toplam Tutar',
+    'KDV Hariç Tutar',
     'KDV Tutarı',
+    'KDV Dahil Toplam',
     'KDV Oranı (%)',
     'Ödenen Tutar',
     'Kalan Borç',
@@ -248,14 +251,16 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
       .filter((i) => i.isActive)
       .map((inv) => {
         const paid = inv.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
+        const net = inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount;
         return [
           formatDateTR(inv.date),
           inv.invoiceNo,
           inv.supplierName,
           inv.taxNumber || '-',
           inv.category,
+          net,
+          inv.vatAmount || 0,
           inv.totalAmount,
-          inv.vatAmount,
           inv.vatRate,
           paid,
           Math.max(0, inv.totalAmount - paid),
@@ -278,9 +283,11 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     'Ürün Kategorisi',
     'Miktar',
     'Birim',
-    'Birim Fiyat',
+    'Birim Fiyat (KDV Hariç)',
     'KDV (%)',
-    'Toplam Kalem Tutarı',
+    'KDV Hariç Tutar',
+    'KDV Tutarı',
+    'KDV Dahil Toplam',
   ];
 
   const itemRows: (string | number)[][] = [itemHeaders];
@@ -288,6 +295,9 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     .filter((i) => i.isActive)
     .forEach((inv) => {
       inv.items.forEach((it) => {
+        const lineNet = Math.round((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) * 100) / 100;
+        const lineVat = Math.round(lineNet * ((Number(it.vatRate) || 0) / 100) * 100) / 100;
+        const lineTotalWithVat = Math.round((lineNet + lineVat) * 100) / 100;
         itemRows.push([
           formatDateTR(inv.date),
           inv.invoiceNo,
@@ -298,7 +308,9 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
           it.unit,
           it.unitPrice,
           it.vatRate,
-          it.total,
+          lineNet,
+          lineVat,
+          lineTotalWithVat,
         ]);
       });
     });
