@@ -810,39 +810,6 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                     <span className="text-[9px] text-gray-400">Kasadan Düşmez</span>
                   </button>
                 </div>
-
-                {/* Dinamik Bilgilendirme Uyarısı */}
-                {isCreditCardExpenseMethod(formData.paidBy) ? (
-                  <div className="mt-2.5 p-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 flex items-start gap-2.5 shadow-sm">
-                    <CreditCard className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
-                    <div className="space-y-0.5">
-                      <div className="font-bold text-sky-300 text-xs flex items-center gap-1.5">
-                        <span>KREDİ GİDERİ OLARAK KAYDEDİLECEK</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/30 text-sky-200 border border-sky-500/40 font-bold uppercase">
-                          Kasadan Düşmez!
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-300 leading-relaxed font-sans">
-                        Banka kartı veya kredi kartı ile yapılan bu harcama gün sonundaki <strong>fiziki nakit kasasından düşülmez</strong>. Kasa giderlerinde <strong>"Kredi Giderleri"</strong> kutucuğunda ayrı olarak toplanır.
-                      </p>
-                    </div>
-                  </div>
-                ) : isCashExpenseMethod(formData.paidBy) ? (
-                  <div className="mt-2.5 p-3 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-200 flex items-start gap-2.5 shadow-sm">
-                    <Wallet className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
-                    <div className="space-y-0.5">
-                      <div className="font-bold text-rose-300 text-xs flex items-center gap-1.5">
-                        <span>NAKİT KASA GİDERİ</span>
-                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-200 border border-rose-500/40 font-bold uppercase">
-                          Kasadan Düşer
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-gray-300 leading-relaxed font-sans">
-                        Bu harcama fiziki nakit kasasından elden ödendiği için gün sonu <strong>kasa nakit mevcudundan düşülür</strong>.
-                      </p>
-                    </div>
-                  </div>
-                ) : null}
               </div>
 
               <div className="grid grid-cols-2 gap-3">

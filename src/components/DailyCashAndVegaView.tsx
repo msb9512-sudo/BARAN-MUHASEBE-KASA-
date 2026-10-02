@@ -566,16 +566,140 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         </div>
       </div>
 
-      {/* 3. MAIN WORKSPACE (2-Column Grid: Section 1 & Section 2) */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Column 1: Vega Satışları & Ürün Grupları */}
+      {/* 3. MAIN WORKSPACE (Vertical Stack: POS on Top, Vega underneath) */}
+      <div className="flex flex-col gap-6">
+        {/* Section 1: POS Cihazları Z Raporları (Üstte) */}
+        <div className="space-y-6">
+          <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg">
+            <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 mb-3">
+              <div className="flex items-center space-x-3">
+                <span className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400 font-mono font-bold text-xs flex items-center justify-center">
+                  1
+                </span>
+                <div>
+                  <h3 className="font-bold text-white text-sm font-mono flex items-center space-x-2">
+                    <span>POS Cihazları Z Raporları</span>
+                    <span className="text-[10px] bg-sky-500/20 text-sky-300 font-semibold px-2 py-0.5 rounded border border-sky-500/30">
+                      Çoklu Z & (+) Toplama Destekli
+                    </span>
+                  </h3>
+                  <span className="text-xs text-gray-400 font-mono">
+                    Tüm banka terminallerinin gün sonu Z raporu tutarları
+                  </span>
+                </div>
+              </div>
+
+              <button
+                onClick={handleAddPosDevice}
+                className="flex items-center space-x-1 text-xs bg-[#21262d] hover:bg-[#30363d] text-sky-400 font-semibold px-2.5 py-1.5 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>+ POS Ekle</span>
+              </button>
+            </div>
+
+            {/* Helpful Quick Tip for Multi-Z and Comma support */}
+            <div className="mb-4 p-2.5 bg-sky-500/10 rounded-lg border border-sky-500/30 flex items-start space-x-2 text-xs font-mono text-sky-300">
+              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
+              <div>
+                <span>
+                  <strong>Çift Z Raporu / Toplama:</strong> Gün içinde aynı cihazdan 2 veya daha fazla Z raporu çıktıysa, tutara araya <strong>+</strong> koyarak yazabilirsiniz (Örn: <strong>1.450,50 + 720,25</strong>). Virgüllü küsuratlar otomatik toplanır.
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-3">
+              {currentEntry.posReports.map((pos, index) => {
+                const isMultiZ = (pos.rawExpression && pos.rawExpression.includes('+')) || false;
+
+                return (
+                  <div
+                    key={pos.id || index}
+                    className={`bg-[#0d1117] p-3.5 rounded-lg border transition ${
+                      isMultiZ ? 'border-sky-500/50 bg-sky-500/10' : 'border-[#30363d]'
+                    } flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono`}
+                  >
+                    <div className="flex-1">
+                      <div className="flex items-center space-x-2">
+                        <input
+                          type="text"
+                          value={pos.posDeviceName}
+                          onChange={(e) => handlePosChange(index, 'posDeviceName', e.target.value)}
+                          className="font-bold text-xs text-gray-200 bg-transparent border-b border-transparent hover:border-[#30363d] focus:border-sky-500 focus:outline-none w-full"
+                        />
+                        {isMultiZ && (
+                          <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-1.5 py-0.5 rounded shrink-0">
+                            Çift Z
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center space-x-2 mt-1.5">
+                        <span className="text-[11px] text-gray-500">Z No:</span>
+                        <input
+                          type="text"
+                          value={pos.zNumber || ''}
+                          onChange={(e) => handlePosChange(index, 'zNumber', e.target.value)}
+                          placeholder="0084 veya 14+15"
+                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-28 font-mono focus:border-sky-500 focus:outline-none"
+                        />
+                        <span className="text-[11px] text-gray-500">Fiş Adet:</span>
+                        <input
+                          type="text"
+                          value={pos.slipCount || ''}
+                          onChange={(e) => handlePosChange(index, 'slipCount', e.target.value)}
+                          placeholder="0"
+                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-16 font-mono focus:border-sky-500 focus:outline-none text-right"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="flex items-center space-x-2">
+                      <div className="w-44">
+                        <SmartMoneyInput
+                          value={pos.creditCardTotal}
+                          rawExpression={pos.rawExpression}
+                          onChange={(val, rawExpr) => handlePosChange(index, 'creditCardTotal', val, rawExpr)}
+                          placeholder="0,00"
+                          className="px-3 py-1.5 text-xs font-bold text-sky-400 focus:border-sky-500"
+                          showLiveSum={true}
+                        />
+                      </div>
+
+                      {currentEntry.posReports.length > 1 && (
+                        <button
+                          onClick={() => handleRemovePos(index)}
+                          className="p-1.5 text-gray-500 hover:text-rose-400 rounded transition cursor-pointer"
+                          title="POS Kaydını Kaldır"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* POS Total Summary Bar */}
+            <div className="mt-4 pt-3 border-t border-[#30363d] flex items-center justify-between font-mono">
+              <span className="text-xs font-semibold text-gray-400">
+                TOPLAM POS Z RAPORLARI ({currentEntry.posReports.length} Cihaz):
+              </span>
+              <strong className="text-lg font-bold text-sky-400">
+                {formatCurrency(reg.posTotal)}
+              </strong>
+            </div>
+          </div>
+        </div>
+
+        {/* Section 2: Vega Satışları & Ürün Grupları (Altta) */}
         <div className="space-y-6">
           {/* Section A: Vega / PDF Satış Raporu */}
           <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg space-y-4">
             <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5">
               <div className="flex items-center space-x-3">
                 <span className="w-7 h-7 rounded-lg bg-orange-500/10 border border-orange-500/30 text-orange-400 font-mono font-bold text-xs flex items-center justify-center">
-                  1
+                  2
                 </span>
                 <div>
                   <h3 className="font-bold text-white text-sm font-mono">
@@ -1002,131 +1126,6 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
                 })()}
               </div>
             )}
-          </div>
-        </div>
-
-        {/* Column 2: POS Cihazları Z Raporları */}
-        <div className="space-y-6">
-          {/* Section B: POS Cihazları Z Raporları */}
-          <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 shadow-lg">
-            <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 mb-3">
-              <div className="flex items-center space-x-3">
-                <span className="w-7 h-7 rounded-lg bg-sky-500/10 border border-sky-500/30 text-sky-400 font-mono font-bold text-xs flex items-center justify-center">
-                  2
-                </span>
-                <div>
-                  <h3 className="font-bold text-white text-sm font-mono flex items-center space-x-2">
-                    <span>POS Cihazları Z Raporları</span>
-                    <span className="text-[10px] bg-sky-500/20 text-sky-300 font-semibold px-2 py-0.5 rounded border border-sky-500/30">
-                      Çoklu Z & (+) Toplama Destekli
-                    </span>
-                  </h3>
-                  <span className="text-xs text-gray-400 font-mono">
-                    Tüm banka terminallerinin gün sonu Z raporu tutarları
-                  </span>
-                </div>
-              </div>
-
-              <button
-                onClick={handleAddPosDevice}
-                className="flex items-center space-x-1 text-xs bg-[#21262d] hover:bg-[#30363d] text-sky-400 font-semibold px-2.5 py-1.5 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                <span>+ POS Ekle</span>
-              </button>
-            </div>
-
-            {/* Helpful Quick Tip for Multi-Z and Comma support */}
-            <div className="mb-4 p-2.5 bg-sky-500/10 rounded-lg border border-sky-500/30 flex items-start space-x-2 text-xs font-mono text-sky-300">
-              <Info className="w-4 h-4 text-sky-400 shrink-0 mt-0.5" />
-              <div>
-                <span>
-                  <strong>Çift Z Raporu / Toplama:</strong> Gün içinde aynı cihazdan 2 veya daha fazla Z raporu çıktıysa, tutara araya <strong>+</strong> koyarak yazabilirsiniz (Örn: <strong>1.450,50 + 720,25</strong>). Virgüllü küsuratlar otomatik toplanır.
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              {currentEntry.posReports.map((pos, index) => {
-                const isMultiZ = (pos.rawExpression && pos.rawExpression.includes('+')) || false;
-
-                return (
-                  <div
-                    key={pos.id || index}
-                    className={`bg-[#0d1117] p-3.5 rounded-lg border transition ${
-                      isMultiZ ? 'border-sky-500/50 bg-sky-500/10' : 'border-[#30363d]'
-                    } flex flex-col sm:flex-row sm:items-center justify-between gap-3 font-mono`}
-                  >
-                    <div className="flex-1">
-                      <div className="flex items-center space-x-2">
-                        <input
-                          type="text"
-                          value={pos.posDeviceName}
-                          onChange={(e) => handlePosChange(index, 'posDeviceName', e.target.value)}
-                          className="font-bold text-xs text-gray-200 bg-transparent border-b border-transparent hover:border-[#30363d] focus:border-sky-500 focus:outline-none w-full"
-                        />
-                        {isMultiZ && (
-                          <span className="text-[10px] bg-sky-500/20 text-sky-300 font-bold px-1.5 py-0.5 rounded shrink-0">
-                            Çift Z
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center space-x-2 mt-1.5">
-                        <span className="text-[11px] text-gray-500">Z No:</span>
-                        <input
-                          type="text"
-                          value={pos.zNumber || ''}
-                          onChange={(e) => handlePosChange(index, 'zNumber', e.target.value)}
-                          placeholder="0084 veya 14+15"
-                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-28 font-mono focus:border-sky-500 focus:outline-none"
-                        />
-                        <span className="text-[11px] text-gray-500">Fiş Adet:</span>
-                        <input
-                          type="text"
-                          value={pos.slipCount || ''}
-                          onChange={(e) => handlePosChange(index, 'slipCount', e.target.value)}
-                          placeholder="0"
-                          className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 w-16 font-mono focus:border-sky-500 focus:outline-none text-right"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="flex items-center space-x-2">
-                      <div className="w-44">
-                        <SmartMoneyInput
-                          value={pos.creditCardTotal}
-                          rawExpression={pos.rawExpression}
-                          onChange={(val, rawExpr) => handlePosChange(index, 'creditCardTotal', val, rawExpr)}
-                          placeholder="0,00"
-                          className="px-3 py-1.5 text-xs font-bold text-sky-400 focus:border-sky-500"
-                          showLiveSum={true}
-                        />
-                      </div>
-
-                      {currentEntry.posReports.length > 1 && (
-                        <button
-                          onClick={() => handleRemovePos(index)}
-                          className="p-1.5 text-gray-500 hover:text-rose-400 rounded transition cursor-pointer"
-                          title="POS Kaydını Kaldır"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-
-            {/* POS Total Summary Bar */}
-            <div className="mt-4 pt-3 border-t border-[#30363d] flex items-center justify-between font-mono">
-              <span className="text-xs font-semibold text-gray-400">
-                TOPLAM POS Z RAPORLARI ({currentEntry.posReports.length} Cihaz):
-              </span>
-              <strong className="text-lg font-bold text-sky-400">
-                {formatCurrency(reg.posTotal)}
-              </strong>
-            </div>
           </div>
         </div>
       </div>
