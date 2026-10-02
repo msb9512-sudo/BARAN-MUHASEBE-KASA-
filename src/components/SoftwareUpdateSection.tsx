@@ -674,6 +674,59 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               </div>
             )}
 
+            {/* v1.0.3 Güncel Sürüm İçeriği ve Değişiklik Notları */}
+            <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3 text-xs font-mono">
+              <div className="flex items-center justify-between border-b border-[#21262d] pb-2">
+                <div className="flex items-center space-x-2">
+                  <GitCommit className="w-4 h-4 text-orange-400" />
+                  <span className="font-bold text-white uppercase tracking-wider">
+                    v1.0.3 Sürüm İçeriği & Yenilikler
+                  </span>
+                </div>
+                <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-bold">
+                  v1.0.3 Güncel
+                </span>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11px] text-gray-300">
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>🏢 Tedarikçi Firmalar Ana Menüsü</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Tedarikçi Firmalar, Kasa İşlemleri altından çıkarılarak sol menüde Kasa İşlemleri'nin hemen altına müstakil bir ana menü grubu olarak yerleştirildi.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>📊 Otomatik Gruplama & Ürün Özeti</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Firmalar VKN ve ada göre akıllıca gruplanır; alışveriş geçmişi, fatura kalemleri ve bu firmadan alınan ürünlerin miktar/tutar dökümü tek ekranda analiz edilir.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>🧾 KDV ve Genel Toplam Hesaplama</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Fatura formunda KDV Hariç (`netAmount`), KDV Tutarı (`vatAmount`) ve KDV Dahil Genel Toplam (`totalAmount = netAmount + vatAmount`) 2 ondalığa yuvarlanarak eksiksiz hesaplanır.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>💳 Kasa ve Kredi Gideri Ayrımı</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Banka Kartı ve Kredi Kartı ile yapılan harcamalar fiziksel nakit kasadan düşülmez, "Kredi Giderleri" kutusunda ayrı takip edilir.
+                  </p>
+                </div>
+              </div>
+            </div>
+
             {/* YENİ SÜRÜM VAR DURUMU */}
             {status === 'update-available' && remoteVersion && (
               <div className="p-5 rounded-2xl bg-gradient-to-r from-orange-500/15 to-amber-500/10 border border-orange-500/50 text-white space-y-4 shadow-lg shadow-orange-500/5">
