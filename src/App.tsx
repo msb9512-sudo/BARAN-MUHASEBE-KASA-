@@ -678,9 +678,6 @@ export function App() {
               <span>• VKN: {appState.profile.taxNumber}</span>
             )}
           </div>
-          <div>
-            Nakit Akışı Formülü: <span className="font-mono font-semibold text-orange-400">Devir + Gelirler - Giderler = Gün Sonu Kasa</span>
-          </div>
         </div>
       </footer>
 
