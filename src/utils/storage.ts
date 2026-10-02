@@ -506,10 +506,28 @@ export function calculateAccountBalance(
   expenses.forEach((exp) => {
     if (!exp.isActive) return;
     const amount = Number(exp.amount) || 0;
+
+    const p = (exp.paidBy || '').toLowerCase();
+    const isCreditOrCard =
+      p === 'kredi kartı' ||
+      p === 'banka kartı' ||
+      p === 'kredi karti' ||
+      p === 'banka karti' ||
+      p.includes('kredi') ||
+      p.includes('kart');
+
+    const isCashAccount = account.type === 'cash' || account.isDefault || account.id === 'ana-kasa';
+
+    // KURAL: Banka Kartı ve Kredi Kartı harcamaları KESİNLİKLE Nakit Kasa hesabından DÜŞÜRÜLMEZ!
+    if (isCashAccount && isCreditOrCard) {
+      return;
+    }
+
     const isThisAccount =
       exp.accountId === account.id ||
-      (!exp.accountId && (account.isDefault || account.id === 'ana-kasa') && exp.paidBy === 'Kasa') ||
-      (!exp.accountId && account.type === 'bank' && exp.paidBy === 'Banka');
+      (!exp.accountId && isCashAccount && exp.paidBy === 'Kasa') ||
+      (!exp.accountId && account.type === 'bank' && (exp.paidBy === 'Banka' || exp.paidBy === 'Banka Kartı')) ||
+      (!exp.accountId && (account.type === 'credit_card' || account.type === 'pos') && exp.paidBy === 'Kredi Kartı');
 
     if (isThisAccount) {
       totalExpenses += amount;

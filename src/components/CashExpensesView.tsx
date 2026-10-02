@@ -12,11 +12,14 @@ import {
   CheckCircle2,
   DollarSign,
   Tag,
+  CreditCard,
+  Wallet,
 } from 'lucide-react';
-import { CashExpense, ExpenseCategory, FinancialAccount } from '../types';
+import { CashExpense, ExpenseCategory, FinancialAccount, ExpensePaymentMethod } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportExpensesToExcel } from '../utils/excelExport';
 import { calculateAccountBalance, DEFAULT_ACCOUNTS } from '../utils/storage';
+import { isCreditCardExpenseMethod, isCashExpenseMethod } from '../utils/calculations';
 import { SmartMoneyInput } from './SmartMoneyInput';
 import { CashierStepFooter } from './CashierStepFooter';
 import { TabType } from '../types';
@@ -60,7 +63,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     category: '',
     description: '',
     amount: '',
-    paidBy: 'Kasa' as 'Kasa' | 'Banka' | 'Cepte/Şahsi',
+    paidBy: 'Kasa' as ExpensePaymentMethod,
     accountId: defaultAccount?.id || 'ana-kasa',
     accountName: defaultAccount?.name || 'Ana Kasa (Nakit)',
     receiptNo: '',
@@ -76,8 +79,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     ])
   );
 
-  // Filter expenses
-  const filteredExpenses = expenses.filter((exp) => {
+  // Base expenses filtered by date, category, account, and search (WITHOUT source filter)
+  const baseExpensesForPeriod = expenses.filter((exp) => {
     if (!exp.isActive) return false;
 
     // Date filtering
@@ -91,12 +94,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     // Category
     if (categoryFilter !== 'all' && exp.category !== categoryFilter) return false;
 
-    // Source
-    if (sourceFilter !== 'all' && exp.paidBy !== sourceFilter) return false;
-
     // Account
     if (accountFilter !== 'all') {
-      const expAccId = exp.accountId || (exp.paidBy === 'Banka' ? accounts.find((a) => a.type === 'bank')?.id : defaultAccount?.id);
+      const expAccId = exp.accountId || (isCreditCardExpenseMethod(exp.paidBy) ? accounts.find((a) => a.type === 'bank' || a.type === 'credit_card')?.id : defaultAccount?.id);
       if (expAccId !== accountFilter) return false;
     }
 
@@ -114,10 +114,28 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     return true;
   });
 
+  // 1. Kasadan Çıkan Nakit: SADECE kasadaki elden nakit mevcudundan ödenenler
+  const cashOnlyExpenses = baseExpensesForPeriod.filter((e) => isCashExpenseMethod(e.paidBy));
+  const cashOnlyAmount = cashOnlyExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  // 2. Kredi & Kart Giderleri: Banka Kartı ve Kredi Kartı ile yapılan harcamalar (KASADAN DÜŞMEZ!)
+  const creditCardOnlyExpenses = baseExpensesForPeriod.filter((e) => isCreditCardExpenseMethod(e.paidBy));
+  const creditCardOnlyAmount = creditCardOnlyExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  // 3. Toplam Dönem Gideri (Tüm Kaynaklar)
+  const totalPeriodAmount = baseExpensesForPeriod.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+
+  // Filtered expenses for the table (applying sourceFilter)
+  const filteredExpenses = baseExpensesForPeriod.filter((exp) => {
+    if (sourceFilter === 'all') return true;
+    if (sourceFilter === 'Kasa') return isCashExpenseMethod(exp.paidBy);
+    if (sourceFilter === 'kredi_giderleri') return isCreditCardExpenseMethod(exp.paidBy);
+    if (sourceFilter === 'Banka') return exp.paidBy === 'Banka';
+    if (sourceFilter === 'Cepte/Şahsi') return exp.paidBy === 'Cepte/Şahsi';
+    return exp.paidBy === sourceFilter;
+  });
+
   const totalFilteredAmount = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  const cashOnlyAmount = filteredExpenses
-    .filter((e) => e.paidBy === 'Kasa')
-    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
   const handleOpenAdd = () => {
     const defaultAcc = accounts.find((a) => a.isDefault) || accounts[0] || DEFAULT_ACCOUNTS[0];
@@ -128,7 +146,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       category: categories[0]?.name || '',
       description: '',
       amount: '',
-      paidBy: defaultAcc?.type === 'bank' ? 'Banka' : 'Kasa',
+      paidBy: 'Kasa',
       accountId: defaultAcc?.id || 'ana-kasa',
       accountName: defaultAcc?.name || 'Ana Kasa (Nakit)',
       receiptNo: '',
@@ -142,6 +160,10 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     const matchingAcc =
       accounts.find((a) => a.id === exp.accountId) ||
       (exp.paidBy === 'Banka'
+        ? accounts.find((a) => a.type === 'bank') || accounts[0]
+        : exp.paidBy === 'Kredi Kartı'
+        ? accounts.find((a) => a.type === 'credit_card' || a.type === 'bank') || accounts[0]
+        : exp.paidBy === 'Banka Kartı'
         ? accounts.find((a) => a.type === 'bank') || accounts[0]
         : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0]);
 
@@ -248,38 +270,108 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         </div>
       </div>
 
-      {/* Stats row */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-        <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] font-mono">
-          <span className="text-xs text-gray-400 font-semibold uppercase">
-            KASADAN ÇIKAN NAKİT GİDER
-          </span>
-          <div className="text-2xl font-bold text-rose-400 mt-1">
-            {formatCurrency(cashOnlyAmount)}
+      {/* Stats row with dedicated "KREDİ GİDERLERİ" box */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Kutu 1: Kasadan Çıkan Nakit Gider */}
+        <div
+          onClick={() => setSourceFilter(sourceFilter === 'Kasa' ? 'all' : 'Kasa')}
+          className={`p-4 rounded-xl border font-mono shadow-sm flex flex-col justify-between transition cursor-pointer group ${
+            sourceFilter === 'Kasa'
+              ? 'border-rose-400 ring-2 ring-rose-400/50 bg-rose-500/10'
+              : 'bg-[#161b22] border-rose-500/30 hover:border-rose-400 hover:bg-[#1f1924]'
+          }`}
+          title="Tıklayarak sadece Kasadan Nakit ödenen harcamaları listeleyin"
+        >
+          <div>
+            <div className="flex items-center justify-between text-xs text-gray-400 font-semibold uppercase">
+              <span className="flex items-center gap-1.5 text-rose-300 font-bold">
+                <Wallet className="w-4 h-4 text-rose-400" />
+                <span>KASADAN ÇIKAN NAKİT GİDER</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 font-bold">
+                KASADAN DÜŞER
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-rose-400 mt-2 flex items-center justify-between">
+              <span>{formatCurrency(cashOnlyAmount)}</span>
+              <span className="text-[10px] text-rose-300/80 font-normal">
+                {cashOnlyExpenses.length} Harcama {sourceFilter === 'Kasa' ? '• [Filtre Aktif]' : ''}
+              </span>
+            </div>
           </div>
-          <span className="text-[11px] text-gray-500 mt-1 block">
-            Doğrudan gün sonu kasa hesabından düşülen tutar
+          <span className="text-[11px] text-gray-400 mt-2 block pt-2 border-t border-[#21262d]">
+            Fiziki kasadan elden ödenen harcamalar
           </span>
         </div>
 
-        <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] font-mono">
-          <span className="text-xs text-gray-400 font-semibold uppercase">
-            TOPLAM GİDER (TÜM KAYNAKLAR)
-          </span>
-          <div className="text-2xl font-bold text-white mt-1">
-            {formatCurrency(totalFilteredAmount)}
+        {/* Kutu 2: KREDİ & KART GİDERLERİ (YENİ AYRI KUTUCUK) */}
+        <div
+          onClick={() => setSourceFilter(sourceFilter === 'kredi_giderleri' ? 'all' : 'kredi_giderleri')}
+          className={`p-4 rounded-xl border font-mono shadow-sm flex flex-col justify-between transition cursor-pointer group ${
+            sourceFilter === 'kredi_giderleri'
+              ? 'border-sky-400 ring-2 ring-sky-400/50 bg-sky-500/15'
+              : 'bg-[#161b22] border-sky-500/40 hover:border-sky-400 hover:bg-[#162233]'
+          }`}
+          title="Tıklayarak sadece Kredi Kartı & Banka Kartı ile yapılan harcamaları listeleyin"
+        >
+          <div>
+            <div className="flex items-center justify-between text-xs text-gray-400 font-semibold uppercase">
+              <span className="text-sky-300 font-bold flex items-center gap-1.5">
+                <CreditCard className="w-4 h-4 text-sky-400" />
+                <span>KREDİ GİDERLERİ</span>
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-sky-500/25 text-sky-300 border border-sky-500/40 font-bold tracking-wide">
+                KASADAN DÜŞMEZ!
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-sky-400 mt-2 flex items-center justify-between">
+              <span>{formatCurrency(creditCardOnlyAmount)}</span>
+              <span className="text-[10px] text-sky-300/80 font-normal">
+                {creditCardOnlyExpenses.length} Harcama {sourceFilter === 'kredi_giderleri' ? '• [Filtre Aktif]' : ''}
+              </span>
+            </div>
           </div>
-          <span className="text-[11px] text-gray-500 mt-1 block">
-            {filteredExpenses.length} Kalem Harcama Kaydı
+          <span className="text-[11px] text-gray-400 mt-2 block pt-2 border-t border-[#21262d]">
+            Banka & Kredi Kartı ile yapılan harcamalar
           </span>
         </div>
 
-        <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] font-mono flex flex-col justify-between">
+        {/* Kutu 3: Toplam Gider (Tüm Kaynaklar) */}
+        <div
+          onClick={() => setSourceFilter('all')}
+          className={`p-4 rounded-xl border font-mono shadow-sm flex flex-col justify-between transition cursor-pointer group ${
+            sourceFilter === 'all'
+              ? 'bg-[#161b22] border-orange-500/50'
+              : 'bg-[#161b22] border-[#30363d] hover:border-gray-500'
+          }`}
+          title="Tüm harcamaları listelemek için tıklayın"
+        >
+          <div>
+            <div className="flex items-center justify-between text-xs text-gray-400 font-semibold uppercase">
+              <span className="text-gray-300 font-bold">TOPLAM GİDER (TÜMÜ)</span>
+              <span className="text-[10px] text-gray-400 px-1.5 py-0.5 rounded bg-[#21262d] border border-[#30363d]">
+                {baseExpensesForPeriod.length} Harcama
+              </span>
+            </div>
+            <div className="text-2xl font-bold text-white mt-2 flex items-center justify-between">
+              <span>{formatCurrency(totalPeriodAmount)}</span>
+              <span className="text-[10px] text-gray-400">
+                {sourceFilter !== 'all' ? 'Tümünü Göster' : ''}
+              </span>
+            </div>
+          </div>
+          <span className="text-[11px] text-gray-400 mt-2 block pt-2 border-t border-[#21262d]">
+            Nakit + Kredi Kartı + Banka harcamaları
+          </span>
+        </div>
+
+        {/* Kutu 4: Görüntülenen Dönem */}
+        <div className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] font-mono flex flex-col justify-between shadow-sm">
           <span className="text-xs text-gray-400 font-semibold uppercase">GÖRÜNTÜLENEN DÖNEM</span>
           <div className="flex items-center space-x-2 mt-2">
             <button
               onClick={() => setFilterDateMode('selected-date')}
-              className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+              className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex-1 ${
                 filterDateMode === 'selected-date'
                   ? 'bg-orange-600 text-white'
                   : 'bg-[#21262d] text-gray-300 border border-[#30363d] hover:bg-[#30363d]'
@@ -289,7 +381,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
             </button>
             <button
               onClick={() => setFilterDateMode('all-month')}
-              className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer ${
+              className={`text-xs px-3 py-1.5 rounded-lg font-semibold transition cursor-pointer flex-1 ${
                 filterDateMode === 'all-month'
                   ? 'bg-orange-600 text-white'
                   : 'bg-[#21262d] text-gray-300 border border-[#30363d] hover:bg-[#30363d]'
@@ -298,6 +390,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
               Tüm Ay
             </button>
           </div>
+          <span className="text-[11px] text-gray-400 mt-2 block pt-2 border-t border-[#21262d]">
+            {filterDateMode === 'selected-date' ? 'Seçili günün kayıtları' : 'Bu ayın tüm giderleri'}
+          </span>
         </div>
       </div>
 
@@ -352,9 +447,10 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
             className="bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
           >
             <option value="all">Tüm Ödeme Kaynakları</option>
-            <option value="Kasa">Sadece Kasa</option>
-            <option value="Banka">Banka / EFT</option>
-            <option value="Cepte/Şahsi">Şahsi / Cep</option>
+            <option value="Kasa">💵 Sadece Kasadan Nakit</option>
+            <option value="kredi_giderleri">💳 Sadece Kredi & Banka Kartı</option>
+            <option value="Banka">🏦 Sadece Banka (Havale/EFT)</option>
+            <option value="Cepte/Şahsi">👤 Şahsi / Cep</option>
           </select>
         </div>
       </div>
@@ -403,12 +499,27 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                       )}
                     </td>
                     <td className="py-3 px-4">
-                      <div className="flex flex-col gap-0.5">
-                        <span className="font-semibold text-white px-2 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-[11px] whitespace-nowrap inline-block">
-                          {exp.accountName || (exp.paidBy === 'Banka' ? 'Banka Hesabı' : 'Ana Kasa (Nakit)')}
-                        </span>
-                        <span className="text-[10px] text-gray-500 font-mono">
-                          {exp.paidBy}
+                      <div className="flex flex-col gap-1 items-start">
+                        {isCreditCardExpenseMethod(exp.paidBy) ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-sky-500/20 text-sky-300 border border-sky-500/30 text-[10px] font-bold">
+                            <CreditCard className="w-3 h-3 text-sky-400" />
+                            <span>{exp.paidBy}</span>
+                            <span className="text-[9px] bg-sky-500/30 px-1 py-0.2 rounded text-sky-200">KASADAN DÜŞMEZ</span>
+                          </span>
+                        ) : isCashExpenseMethod(exp.paidBy) ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[10px] font-bold">
+                            <Wallet className="w-3 h-3 text-rose-400" />
+                            <span>Nakit Kasa</span>
+                            <span className="text-[9px] bg-rose-500/30 px-1 py-0.2 rounded text-rose-200">KASADAN DÜŞER</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-purple-500/20 text-purple-300 border border-purple-500/30 text-[10px] font-bold">
+                            <span>{exp.paidBy}</span>
+                            <span className="text-[9px] bg-purple-500/30 px-1 py-0.2 rounded text-purple-200">KASADAN DÜŞMEZ</span>
+                          </span>
+                        )}
+                        <span className="text-[11px] text-gray-300 font-semibold px-1">
+                          {exp.accountName || (exp.paidBy === 'Banka' ? 'Banka Hesabı' : isCreditCardExpenseMethod(exp.paidBy) ? 'Banka / Kart Hesabı' : 'Ana Kasa (Nakit)')}
                         </span>
                       </div>
                     </td>
@@ -418,8 +529,17 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                     <td className="py-3 px-4 text-gray-400 font-sans">
                       {exp.enteredBy}
                     </td>
-                    <td className="py-3 px-4 text-right font-bold text-rose-400 text-sm whitespace-nowrap">
-                      -{formatCurrency(exp.amount)}
+                    <td className="py-3 px-4 text-right whitespace-nowrap">
+                      <div className="flex flex-col items-end">
+                        <span className={`text-sm font-mono font-bold ${
+                          isCreditCardExpenseMethod(exp.paidBy) ? 'text-sky-400' : 'text-rose-400'
+                        }`}>
+                          -{formatCurrency(exp.amount)}
+                        </span>
+                        <span className="text-[9px] font-mono text-gray-400">
+                          {isCreditCardExpenseMethod(exp.paidBy) ? '💳 Kredi Gideri' : '💵 Kasa Nakiti'}
+                        </span>
+                      </div>
                     </td>
                     <td className="py-3 px-4 text-center whitespace-nowrap">
                       <div className="flex items-center justify-center space-x-1.5">
@@ -553,6 +673,178 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                 />
               </div>
 
+              {/* Ödeme Yöntemi / Harcama Şekli */}
+              <div>
+                <label className="block font-semibold text-gray-300 mb-1.5 flex items-center justify-between">
+                  <span>Ödeme Şekli / Kaynağı *</span>
+                  {isCreditCardExpenseMethod(formData.paidBy) ? (
+                    <span className="text-[10px] text-sky-400 font-bold bg-sky-500/15 px-2 py-0.5 rounded border border-sky-500/30">
+                      ⚡ Kredi Gideri - Kasadan Düşmez
+                    </span>
+                  ) : isCashExpenseMethod(formData.paidBy) ? (
+                    <span className="text-[10px] text-rose-400 font-bold bg-rose-500/15 px-2 py-0.5 rounded border border-rose-500/30">
+                      💵 Nakit - Kasadan Düşer
+                    </span>
+                  ) : (
+                    <span className="text-[10px] text-purple-400 font-bold bg-purple-500/15 px-2 py-0.5 rounded border border-purple-500/30">
+                      🏦 Banka / Diğer - Kasadan Düşmez
+                    </span>
+                  )}
+                </label>
+
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const cashAcc = accounts.find((a) => a.type === 'cash' || a.id === 'ana-kasa') || accounts[0];
+                      setFormData({
+                        ...formData,
+                        paidBy: 'Kasa',
+                        accountId: cashAcc ? cashAcc.id : 'ana-kasa',
+                        accountName: cashAcc ? cashAcc.name : 'Ana Kasa (Nakit)',
+                      });
+                    }}
+                    className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${
+                      formData.paidBy === 'Kasa'
+                        ? 'bg-rose-500/20 border-rose-400 text-rose-300 ring-1 ring-rose-400'
+                        : 'bg-[#0d1117] border-[#30363d] text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs text-white">
+                      <Wallet className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Nakit Kasa</span>
+                    </div>
+                    <span className="text-[10px] text-rose-400/90 mt-1 font-semibold">
+                      Kasadan Düşer
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const bankAcc = accounts.find((a) => a.type === 'bank' || a.type === 'credit_card') || accounts[0];
+                      setFormData({
+                        ...formData,
+                        paidBy: 'Banka Kartı',
+                        accountId: bankAcc ? bankAcc.id : formData.accountId,
+                        accountName: bankAcc ? bankAcc.name : formData.accountName,
+                      });
+                    }}
+                    className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${
+                      formData.paidBy === 'Banka Kartı'
+                        ? 'bg-sky-500/20 border-sky-400 text-sky-300 ring-1 ring-sky-400'
+                        : 'bg-[#0d1117] border-[#30363d] text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs text-white">
+                      <CreditCard className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Banka Kartı</span>
+                    </div>
+                    <span className="text-[10px] text-sky-400 mt-1 font-semibold">
+                      Kasadan Düşmez!
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const ccAcc = accounts.find((a) => a.type === 'credit_card' || a.type === 'bank') || accounts[0];
+                      setFormData({
+                        ...formData,
+                        paidBy: 'Kredi Kartı',
+                        accountId: ccAcc ? ccAcc.id : formData.accountId,
+                        accountName: ccAcc ? ccAcc.name : formData.accountName,
+                      });
+                    }}
+                    className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${
+                      formData.paidBy === 'Kredi Kartı'
+                        ? 'bg-sky-500/20 border-sky-400 text-sky-300 ring-1 ring-sky-400'
+                        : 'bg-[#0d1117] border-[#30363d] text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-1.5 font-bold text-xs text-white">
+                      <CreditCard className="w-3.5 h-3.5 text-sky-400" />
+                      <span>Kredi Kartı</span>
+                    </div>
+                    <span className="text-[10px] text-sky-400 mt-1 font-semibold">
+                      Kasadan Düşmez!
+                    </span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const bankAcc = accounts.find((a) => a.type === 'bank') || accounts[0];
+                      setFormData({
+                        ...formData,
+                        paidBy: 'Banka',
+                        accountId: bankAcc ? bankAcc.id : formData.accountId,
+                        accountName: bankAcc ? bankAcc.name : formData.accountName,
+                      });
+                    }}
+                    className={`p-2 rounded-lg border text-left flex items-center justify-between transition cursor-pointer ${
+                      formData.paidBy === 'Banka'
+                        ? 'bg-purple-500/20 border-purple-400 text-purple-300 ring-1 ring-purple-400'
+                        : 'bg-[#0d1117] border-[#30363d] text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <span className="font-semibold text-xs text-gray-200">🏦 Banka (Havale/EFT)</span>
+                    <span className="text-[9px] text-gray-400">Kasadan Düşmez</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData({
+                        ...formData,
+                        paidBy: 'Cepte/Şahsi',
+                      });
+                    }}
+                    className={`p-2 rounded-lg border text-left flex items-center justify-between transition cursor-pointer sm:col-span-2 ${
+                      formData.paidBy === 'Cepte/Şahsi'
+                        ? 'bg-gray-700/50 border-gray-400 text-white ring-1 ring-gray-400'
+                        : 'bg-[#0d1117] border-[#30363d] text-gray-400 hover:border-gray-500'
+                    }`}
+                  >
+                    <span className="font-semibold text-xs text-gray-200">👤 Cepte / Şahsi Ödeme</span>
+                    <span className="text-[9px] text-gray-400">Kasadan Düşmez</span>
+                  </button>
+                </div>
+
+                {/* Dinamik Bilgilendirme Uyarısı */}
+                {isCreditCardExpenseMethod(formData.paidBy) ? (
+                  <div className="mt-2.5 p-3 rounded-lg bg-sky-950/40 border border-sky-500/40 text-sky-200 flex items-start gap-2.5 shadow-sm">
+                    <CreditCard className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-sky-300 text-xs flex items-center gap-1.5">
+                        <span>KREDİ GİDERİ OLARAK KAYDEDİLECEK</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-sky-500/30 text-sky-200 border border-sky-500/40 font-bold uppercase">
+                          Kasadan Düşmez!
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-300 leading-relaxed font-sans">
+                        Banka kartı veya kredi kartı ile yapılan bu harcama gün sonundaki <strong>fiziki nakit kasasından düşülmez</strong>. Kasa giderlerinde <strong>"Kredi Giderleri"</strong> kutucuğunda ayrı olarak toplanır.
+                      </p>
+                    </div>
+                  </div>
+                ) : isCashExpenseMethod(formData.paidBy) ? (
+                  <div className="mt-2.5 p-3 rounded-lg bg-rose-950/30 border border-rose-500/30 text-rose-200 flex items-start gap-2.5 shadow-sm">
+                    <Wallet className="w-4 h-4 text-rose-400 mt-0.5 shrink-0" />
+                    <div className="space-y-0.5">
+                      <div className="font-bold text-rose-300 text-xs flex items-center gap-1.5">
+                        <span>NAKİT KASA GİDERİ</span>
+                        <span className="text-[9px] px-1.5 py-0.2 rounded bg-rose-500/30 text-rose-200 border border-rose-500/40 font-bold uppercase">
+                          Kasadan Düşer
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-gray-300 leading-relaxed font-sans">
+                        Bu harcama fiziki nakit kasasından elden ödendiği için gün sonu <strong>kasa nakit mevcudundan düşülür</strong>.
+                      </p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-gray-300 mb-1">
@@ -569,7 +861,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                 <div>
                   <div className="flex items-center justify-between mb-1">
                     <label className="block font-semibold text-gray-300">
-                      Ödeme Yapılan Hesap / Kasa *
+                      {isCreditCardExpenseMethod(formData.paidBy)
+                        ? 'İşlem Gören Kart / Banka Hesabı'
+                        : 'Ödeme Yapılan Hesap / Kasa *'}
                     </label>
                     {onNavigate && (
                       <button
@@ -593,7 +887,6 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                         ...formData,
                         accountId: selectedId,
                         accountName: acc ? acc.name : '',
-                        paidBy: acc?.type === 'bank' ? 'Banka' : 'Kasa',
                       });
                     }}
                     className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white font-mono focus:border-orange-500 focus:outline-none"
@@ -608,7 +901,9 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                     })}
                   </select>
                   <span className="text-[10px] text-gray-500 mt-1 block">
-                    Gider bu hesaptan düşülür ve kalan para güncellenir.
+                    {isCreditCardExpenseMethod(formData.paidBy)
+                      ? 'Bu harcama karta yansır, kasadaki nakiti etkilemez.'
+                      : 'Gider bu hesaptan düşülür ve kalan para güncellenir.'}
                   </span>
                 </div>
               </div>

@@ -18,7 +18,14 @@ import * as XLSX from 'xlsx';
 import { DailyEntry, CashExpense, Invoice } from '../types';
 import { formatCurrency, parseNumberInput } from '../utils/formatters';
 import { extractTextFromPdf, parseReportText, ParsedPdfReport } from '../utils/pdfParser';
-import { calculateDailyRegister, getDailyCashExpenses, getDailyInvoiceCashPayments } from '../utils/calculations';
+import {
+  calculateDailyRegister,
+  getDailyCashExpenses,
+  getDailyCreditCardExpenses,
+  getDailyInvoiceCashPayments,
+  isCashExpenseMethod,
+  isCreditCardExpenseMethod,
+} from '../utils/calculations';
 
 interface VegaImportModalProps {
   isOpen: boolean;
@@ -187,6 +194,7 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
       : Math.max(0, previewTotalSales - previewCCSales - previewOtherSales);
 
   const dailyCashExpenses = getDailyCashExpenses(expenses, currentEntry.date);
+  const dailyCreditCardExpenses = getDailyCreditCardExpenses(expenses, currentEntry.date);
   const dailyInvoiceCash = getDailyInvoiceCashPayments(invoices, currentEntry.date);
   const openingCash = Number(currentEntry.openingCash) || 0;
   const withdrawals = (currentEntry.cashWithdrawals || []).reduce((s, w) => s + (Number(w.amount) || 0), 0);
@@ -491,9 +499,15 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
                   <span className="font-semibold text-emerald-400">+{formatCurrency(previewCashSales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">- Günlük Kasa Giderleri ({expenses.filter(e => e.isActive && e.date === currentEntry.date && e.paidBy === 'Kasa').length} adet):</span>
+                  <span className="text-gray-400">- Günlük Kasa Giderleri ({expenses.filter(e => e.isActive && e.date === currentEntry.date && isCashExpenseMethod(e.paidBy)).length} adet):</span>
                   <span className="font-semibold text-rose-400">-{formatCurrency(dailyCashExpenses)}</span>
                 </div>
+                {dailyCreditCardExpenses > 0 && (
+                  <div className="flex justify-between text-sky-400">
+                    <span className="text-sky-300">ℹ Kredi Giderleri ({expenses.filter(e => e.isActive && e.date === currentEntry.date && isCreditCardExpenseMethod(e.paidBy)).length} adet):</span>
+                    <span className="font-semibold text-sky-400">{formatCurrency(dailyCreditCardExpenses)} (Düşmez)</span>
+                  </div>
+                )}
                 <div className="flex justify-between">
                   <span className="text-gray-400">- Kasadan Fatura Ödemeleri:</span>
                   <span className="font-semibold text-rose-400">-{formatCurrency(dailyInvoiceCash)}</span>

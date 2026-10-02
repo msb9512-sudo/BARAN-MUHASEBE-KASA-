@@ -15,16 +15,59 @@ export function getPosTotal(posReports: PosZReportItem[] = []): number {
 }
 
 /**
- * Calculates total expenses paid via Cash (Kasadan) for a specific date
+ * Helper to determine if an expense was paid using Credit Card or Bank Card.
+ * These are categorized as "Kredi Giderleri" and are NEVER deducted from the physical cash drawer.
+ */
+export function isCreditCardExpenseMethod(paidBy?: string): boolean {
+  if (!paidBy) return false;
+  const p = paidBy.trim().toLowerCase();
+  return (
+    p === 'kredi kartı' ||
+    p === 'banka kartı' ||
+    p === 'kredi karti' ||
+    p === 'banka karti' ||
+    p === 'kredi' ||
+    p === 'kredi_giderleri' ||
+    p.includes('kredi kart') ||
+    p.includes('banka kart')
+  );
+}
+
+/**
+ * Helper to determine if an expense was paid in cash from the register drawer.
+ * Only cash payments deduct from the physical register cash.
+ */
+export function isCashExpenseMethod(paidBy?: string): boolean {
+  if (!paidBy) return true;
+  if (isCreditCardExpenseMethod(paidBy)) return false;
+  const p = paidBy.trim().toLowerCase();
+  if (p === 'banka' || p.includes('havale') || p.includes('eft')) return false;
+  if (p.includes('şahsi') || p.includes('sahsi') || p.includes('cep')) return false;
+  return p === 'kasa' || p === 'nakit' || p === 'nakit kasa';
+}
+
+/**
+ * Calculates total expenses paid via Cash (Kasadan / Elden Nakit) for a specific date.
+ * Banka Kartı ve Kredi Kartı harcamaları KESİNLİKLE kasadan düşürülmez.
  */
 export function getDailyCashExpenses(expenses: CashExpense[] = [], date: string): number {
   return expenses
-    .filter((e) => e.isActive && e.date === date && e.paidBy === 'Kasa')
+    .filter((e) => e.isActive && e.date === date && isCashExpenseMethod(e.paidBy))
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 }
 
 /**
- * Calculates all expenses (Kasa + Banka + Şahsi) for a date
+ * Calculates total expenses paid via Credit Card / Bank Card (Kredi Giderleri) for a specific date.
+ * Bu harcamalar kasadaki fiziki nakitten DÜŞÜRÜLMEZ.
+ */
+export function getDailyCreditCardExpenses(expenses: CashExpense[] = [], date: string): number {
+  return expenses
+    .filter((e) => e.isActive && e.date === date && isCreditCardExpenseMethod(e.paidBy))
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+}
+
+/**
+ * Calculates all expenses (Kasa + Kredi Kartı + Banka + Şahsi) for a date
  */
 export function getDailyTotalExpenses(expenses: CashExpense[] = [], date: string): number {
   return expenses
@@ -76,6 +119,7 @@ export interface DailyRegisterSummary {
   posVegaDifference: number;
   isPosReconciled: boolean;
   cashExpenses: number;
+  creditCardExpenses: number;
   invoiceCashPayments: number;
   cashWithdrawals: number;
   totalCashOutflow: number;
@@ -125,6 +169,7 @@ export function calculateDailyRegister(
   const isPosReconciled = Math.abs(posVegaDifference) < 0.01;
 
   const cashExpenses = getDailyCashExpenses(expenses, dailyEntry.date);
+  const creditCardExpenses = getDailyCreditCardExpenses(expenses, dailyEntry.date);
   const invoiceCashPayments = getDailyInvoiceCashPayments(invoices, dailyEntry.date);
   const cashWithdrawals = getDailyCashWithdrawals(dailyEntry);
 
@@ -152,6 +197,7 @@ export function calculateDailyRegister(
     posVegaDifference,
     isPosReconciled,
     cashExpenses,
+    creditCardExpenses,
     invoiceCashPayments,
     cashWithdrawals,
     totalCashOutflow,

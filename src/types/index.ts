@@ -206,13 +206,15 @@ export interface AccountTransaction {
   createdAt: string;
 }
 
+export type ExpensePaymentMethod = 'Kasa' | 'Banka' | 'Kredi Kartı' | 'Banka Kartı' | 'Cepte/Şahsi';
+
 export interface CashExpense {
   id: string;
   date: string; // YYYY-MM-DD
   category: string; // Manav, Market, Personel Avans, Nakliye, Temizlik, Bakım, Küçük Gider, Kargo, Diğer
   description: string;
   amount: number;
-  paidBy: 'Kasa' | 'Banka' | 'Cepte/Şahsi';
+  paidBy: ExpensePaymentMethod;
   accountId?: string; // Seçilen hesap ID'si (Örn: 'ana-kasa', 'ziraat', vb.)
   accountName?: string; // Seçilen hesap adı
   receiptNo?: string;

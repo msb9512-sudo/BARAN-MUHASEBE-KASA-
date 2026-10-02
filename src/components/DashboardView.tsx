@@ -32,7 +32,7 @@ import {
   MasterSafeState,
 } from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR } from '../utils/formatters';
-import { calculateDailyRegister, auditDailyEntry } from '../utils/calculations';
+import { calculateDailyRegister, auditDailyEntry, isCreditCardExpenseMethod, isCashExpenseMethod } from '../utils/calculations';
 import { calculateBanknoteTotal, calculateTotalBanknoteCount } from '../utils/storage';
 import { OpenAccountCarilerTable } from './OpenAccountCarilerTable';
 
@@ -235,7 +235,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           className="bg-[#161b22] p-4 rounded-xl border border-[#30363d] hover:border-orange-500/40 transition cursor-pointer group"
         >
           <div className="flex items-center justify-between text-gray-400 text-xs font-semibold uppercase font-mono">
-            <span>Kasa Giderleri</span>
+            <span>Kasa Giderleri (Nakit)</span>
             <div className="p-1.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20 group-hover:scale-105 transition">
               <Receipt className="w-4 h-4" />
             </div>
@@ -244,8 +244,14 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {formatCurrency(reg.cashExpenses)}
           </p>
           <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-2 pt-2 border-t border-[#30363d]">
-            <span>{dayExpenses.length} Harcama</span>
-            <span>Fatura: {formatCurrency(reg.invoiceCashPayments)}</span>
+            <span>{dayExpenses.filter((e) => isCashExpenseMethod(e.paidBy)).length} Nakit Harcama</span>
+            {reg.creditCardExpenses > 0 ? (
+              <span className="text-sky-400 font-semibold" title="Banka & Kredi Kartı Harcamaları (Kasadan Düşmez)">
+                💳 Kredi: {formatCurrency(reg.creditCardExpenses)}
+              </span>
+            ) : (
+              <span>Fatura: {formatCurrency(reg.invoiceCashPayments)}</span>
+            )}
           </div>
         </div>
 
@@ -444,7 +450,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span className="px-2 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400 font-mono text-[10px] font-semibold uppercase">
                         {exp.category}
                       </span>
-                      <span className="text-[11px] text-gray-400 font-mono">{exp.paidBy}</span>
+                      {isCreditCardExpenseMethod(exp.paidBy) ? (
+                        <span className="text-[10px] text-sky-400 font-mono font-bold bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.2 rounded">
+                          💳 {exp.paidBy} (Kasadan Düşmez)
+                        </span>
+                      ) : (
+                        <span className="text-[11px] text-gray-400 font-mono">{exp.paidBy}</span>
+                      )}
                     </div>
                     <div className="text-xs font-semibold text-gray-200 mt-1">
                       {exp.description}
@@ -453,7 +465,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                       <span className="text-[10px] text-gray-500 font-mono">
                         {exp.receiptNo ? `Fiş #${exp.receiptNo}` : 'Kasa Fişi Yok'}
                       </span>
-                      <span className="text-sm font-mono font-bold text-rose-400">
+                      <span className={`text-sm font-mono font-bold ${
+                        isCreditCardExpenseMethod(exp.paidBy) ? 'text-sky-400' : 'text-rose-400'
+                      }`}>
                         -{formatCurrency(exp.amount)}
                       </span>
                     </div>
@@ -499,11 +513,24 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             )}
           </div>
 
-          <div className="p-3 bg-[#0d1117] border-t border-[#30363d] flex justify-between items-center text-xs font-mono text-gray-400">
-            <span>Günlük Gider Çıkışı:</span>
-            <span className="text-sm font-bold text-rose-400 font-mono">
-              {formatCurrency(reg.cashExpenses)}
-            </span>
+          <div className="p-3 bg-[#0d1117] border-t border-[#30363d] flex flex-col gap-1 text-xs font-mono text-gray-400">
+            <div className="flex justify-between items-center">
+              <span>Kasadan Çıkan Nakit Gider:</span>
+              <span className="text-sm font-bold text-rose-400 font-mono">
+                -{formatCurrency(reg.cashExpenses)}
+              </span>
+            </div>
+            {reg.creditCardExpenses > 0 && (
+              <div className="flex justify-between items-center text-[11px] text-sky-400 pt-1 border-t border-[#21262d]">
+                <span className="flex items-center gap-1">
+                  <CreditCard className="w-3 h-3" />
+                  <span>Kredi & Kart Giderleri (Kasadan Düşmez):</span>
+                </span>
+                <span className="font-bold">
+                  {formatCurrency(reg.creditCardExpenses)}
+                </span>
+              </div>
+            )}
           </div>
         </div>
       </div>

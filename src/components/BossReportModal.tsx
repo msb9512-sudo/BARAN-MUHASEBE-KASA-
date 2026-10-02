@@ -70,7 +70,8 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
       `💳 *Kredi Kartı Satış:* ${reg.creditCardSales.toLocaleString('tr-TR')} ₺`,
       entry.vegaReport.otherSales ? `🎟 *Diğer Satışlar:* ${entry.vegaReport.otherSales.toLocaleString('tr-TR')} ₺` : '',
       `───────────────────────────`,
-      `🧾 *Kasa Giderleri Toplamı:* -${reg.cashExpenses.toLocaleString('tr-TR')} ₺`,
+      `🧾 *Kasa Giderleri Toplamı (Nakit):* -${reg.cashExpenses.toLocaleString('tr-TR')} ₺`,
+      reg.creditCardExpenses > 0 ? `💳 *Kredi & Kart Giderleri (Kasadan Düşmez):* ${reg.creditCardExpenses.toLocaleString('tr-TR')} ₺` : '',
       reg.invoiceCashPayments ? `📦 *Kasadan Fatura Ödemesi:* -${reg.invoiceCashPayments.toLocaleString('tr-TR')} ₺` : '',
       reg.cashWithdrawals ? `🏦 *Bankaya Yatırılan / Çekim:* -${reg.cashWithdrawals.toLocaleString('tr-TR')} ₺` : '',
       `───────────────────────────`,
@@ -252,9 +253,16 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
             </div>
 
             <div className="flex justify-between py-1 border-b border-[#21262d]">
-              <span className="text-gray-400">Önceki Günden Devreden Kasa:</span>
-              <strong className="text-gray-200 font-mono text-sm">{formatCurrency(reg.openingCash)}</strong>
+              <span className="text-gray-400">Kasadan Ödenen Günlük Giderler:</span>
+              <strong className="text-amber-400 font-mono text-sm">-{formatCurrency(reg.cashExpenses)}</strong>
             </div>
+
+            {reg.creditCardExpenses > 0 && (
+              <div className="flex justify-between py-1 border-b border-[#21262d]">
+                <span className="text-sky-300 font-medium">💳 Kredi & Kart Giderleri (Kasadan Düşmez):</span>
+                <strong className="text-sky-400 font-mono text-sm">{formatCurrency(reg.creditCardExpenses)}</strong>
+              </div>
+            )}
 
             {reg.invoiceCashPayments > 0 && (
               <div className="flex justify-between py-1 border-b border-[#21262d]">

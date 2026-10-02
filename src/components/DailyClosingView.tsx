@@ -294,6 +294,15 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                     <span className="text-gray-400">Bankaya Yatırılan / Çekim:</span>
                     <strong className="text-gray-300">-{formatCurrency(reg.cashWithdrawals)}</strong>
                   </div>
+                  {reg.creditCardExpenses > 0 && (
+                    <div className="py-1.5 flex justify-between items-center text-sky-400 bg-sky-950/20 px-2 rounded mt-1 border border-sky-800/30">
+                      <span className="flex items-center gap-1.5 font-medium">
+                        <CreditCard className="w-3.5 h-3.5" />
+                        <span>Kredi & Kart Giderleri (Kasadan Düşmez):</span>
+                      </span>
+                      <strong className="text-sky-300 font-bold">{formatCurrency(reg.creditCardExpenses)}</strong>
+                    </div>
+                  )}
                 </div>
               </div>
 

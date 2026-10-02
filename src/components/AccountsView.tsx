@@ -229,17 +229,37 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     // Add expenses mapped to their account
     expenses.forEach((exp) => {
       if (!exp.isActive) return;
-      const targetAccount =
-        accounts.find((a) => a.id === exp.accountId) ||
-        (exp.paidBy === 'Banka'
-          ? accounts.find((a) => a.type === 'bank') || accounts[0]
-          : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0]);
+      const p = (exp.paidBy || '').toLowerCase();
+      const isCreditOrCard =
+        p === 'kredi kartı' ||
+        p === 'banka kartı' ||
+        p === 'kredi karti' ||
+        p === 'banka karti' ||
+        p.includes('kredi') ||
+        p.includes('kart');
+
+      let targetAccount = accounts.find((a) => a.id === exp.accountId);
+
+      if (isCreditOrCard) {
+        // If assigned to a cash drawer account or not set, route to a credit card or bank account
+        if (!targetAccount || targetAccount.type === 'cash' || targetAccount.id === 'ana-kasa') {
+          targetAccount =
+            accounts.find((a) => a.type === 'credit_card') ||
+            accounts.find((a) => a.type === 'bank') ||
+            targetAccount;
+        }
+      } else if (!targetAccount) {
+        targetAccount =
+          exp.paidBy === 'Banka'
+            ? accounts.find((a) => a.type === 'bank') || accounts[0]
+            : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0];
+      }
 
       items.push({
         id: `exp-${exp.id}`,
         date: exp.date,
-        accountId: targetAccount ? targetAccount.id : 'ana-kasa',
-        accountName: targetAccount ? targetAccount.name : 'Ana Kasa',
+        accountId: targetAccount ? targetAccount.id : isCreditOrCard ? 'kredi-karti' : 'ana-kasa',
+        accountName: targetAccount ? targetAccount.name : isCreditOrCard ? 'Kredi / Banka Kartı' : 'Ana Kasa',
         type: 'expense',
         amount: exp.amount,
         category: exp.category || 'Gider',
