@@ -35,6 +35,7 @@ export interface ParsedPdfReport {
   discountAmount: number; // Toplam İskonto
   discountTotal?: number;
   openAccountTotal?: number; // Açık Hesap Toplamı
+  openAccountDiscount?: number; // Açık Hesap İskonto Toplamı
   openTablesTotal?: number; // Şuan Açık Olan Masalar
   kasaGelirGiderTotal?: number;
   netGeneralTotal?: number;
@@ -45,6 +46,7 @@ export interface ParsedPdfReport {
   tableCount?: number;
   guestCount?: number;
   posBreakdown?: { name: string; amount: number }[];
+  validationWarnings?: string[];
 }
 
 /**
@@ -406,6 +408,155 @@ export function extractProductFromLine(line: string): SoldProductItem | null {
 }
 
 /**
+ * Formats a number with Turkish standard two-decimal formatting
+ */
+function formatTRNumber(val: number): string {
+  return new Intl.NumberFormat('tr-TR', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(val);
+}
+
+/**
+ * Checks if a string starts directly with a numeric value (including optional minus sign or currency sign)
+ */
+function lineStartsWithNumber(str: string): boolean {
+  if (!str) return false;
+  const trimmed = str.trim();
+  return /^[-+]?\s*₺?\s*-?[0-9]/.test(trimmed);
+}
+
+/**
+ * Extracts a numeric value for a summary label.
+ * - If the label line has a number, extract it from the line.
+ * - If not, check next line: ONLY use next line if it is label-free and starts directly with a number.
+ * - Otherwise return 0.
+ * Preserves negative sign if preserveNegative is true.
+ */
+function extractSummaryValue(
+  line: string,
+  labelRegex: RegExp,
+  nextLine?: string,
+  preserveNegative: boolean = false
+): { value: number; consumedNextLine: boolean } {
+  const afterLabel = line.replace(labelRegex, '').trim();
+  const numMatches = afterLabel.match(/[-+]?\s*₺?\s*[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[-+]?\s*₺?\s*[0-9]+/g);
+
+  if (numMatches && numMatches.length > 0) {
+    const raw = numMatches[numMatches.length - 1];
+    const val = parseTRNumber(raw);
+    return {
+      value: preserveNegative ? val : Math.abs(val),
+      consumedNextLine: false,
+    };
+  }
+
+  if (nextLine && lineStartsWithNumber(nextLine)) {
+    const nextMatches = nextLine.match(/[-+]?\s*₺?\s*[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[-+]?\s*₺?\s*[0-9]+/g);
+    if (nextMatches && nextMatches.length > 0) {
+      const raw = nextMatches[0];
+      const val = parseTRNumber(raw);
+      return {
+        value: preserveNegative ? val : Math.abs(val),
+        consumedNextLine: true,
+      };
+    }
+  }
+
+  return { value: 0, consumedNextLine: false };
+}
+
+/**
+ * Detects if a line is a group subtotal line (no product name, only quantity and total amount).
+ * Matches patterns like:
+ *  "22 Ad. ₺2.200,00"
+ *  "75,5 Ad. ₺30.905,00"
+ *  "11,0000 Ad. ₺23.100,00"
+ *  "Toplam : 22 Ad. 2.200,00 TL"
+ */
+function parseSubtotalLine(line: string): { itemCount: number; amount: number } | null {
+  if (!line) return null;
+  const trimmed = line.trim();
+
+  // Pattern specified by user: ^\s*[\d.,]+\s*Ad\.?\s+₺?\s*[\d.,]+\s*(TL)?\s*$
+  const subtotalRegex = /^(?:(?:GRUP\s+)?TOPLAM[Iİ]?\s*[:=-]?\s*)?([0-9]+(?:[.,][0-9]+)?)\s*(?:Ad\.?|Adet|Pors\.?|Porsiyon)\s+₺?\s*([0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+)\s*(?:TL)?$/i;
+
+  const m = trimmed.match(subtotalRegex);
+  if (m) {
+    const qty = parseTRNumber(m[1]);
+    const amt = parseTRNumber(m[2]);
+    return { itemCount: qty, amount: amt };
+  }
+
+  // Also check if line consists strictly of [qty] [Ad/Ad.] [currency/amount] without product words
+  const tokens = trimmed.replace(/[₺TL:]/gi, ' ').trim().split(/\s+/).filter(Boolean);
+  if (tokens.length === 3 && /^(?:Ad|Ad\.)$/i.test(tokens[1])) {
+    const qty = parseTRNumber(tokens[0]);
+    const amt = parseTRNumber(tokens[2]);
+    if (qty > 0 && amt > 0) {
+      return { itemCount: qty, amount: amt };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Checks if a normalized line is an özet satırı (Summary line) or table/report header
+ */
+function isSummaryOrMetaLine(normLine: string): boolean {
+  if (!normLine || normLine.length < 2) return true;
+
+  if (
+    normLine.includes('URUN GRUBU BAZLI') ||
+    normLine.includes('SATIS RAPORU') ||
+    normLine.includes('GRUP RAPORU') ||
+    normLine.includes('URUN ADI') ||
+    normLine.includes('MIKTAR') ||
+    normLine.includes('FIYAT') ||
+    normLine.includes('TUTAR') ||
+    normLine.startsWith('SAYFA') ||
+    normLine.startsWith('TARIH')
+  ) {
+    return true;
+  }
+
+  if (
+    normLine.includes('URUN TOPLAM') ||
+    normLine.includes('BRUT SATIS') ||
+    normLine.includes('BRUT TOPLAM') ||
+    normLine.includes('TOPLAM URUN') ||
+    normLine.includes('TOPLAM MATRAH') ||
+    normLine.includes('ISKONTO') ||
+    normLine.includes('SKONTO') ||
+    normLine.includes('INDIRIM') ||
+    normLine.includes('ACIK HESAP') ||
+    normLine.includes('ACIKHESAP') ||
+    normLine.includes('CARI HESAP') ||
+    normLine.includes('CARI SATIS') ||
+    normLine.includes('CARI TOPLAM') ||
+    normLine.includes('ACIK ADISYON') ||
+    normLine.includes('ACIK OLAN MASALAR') ||
+    normLine.includes('ACIK MASALAR') ||
+    normLine.includes('KASA GELIR GIDER') ||
+    normLine.includes('GENEL KASA') ||
+    normLine.includes('KASA TOPLAMI') ||
+    normLine.includes('NET SATIS') ||
+    normLine.includes('NET CIRO') ||
+    normLine.includes('GENEL TOPLAM') ||
+    normLine.includes('KREDI KARTI') ||
+    normLine.includes('K KARTI') ||
+    normLine.includes('POS TOPLAM') ||
+    normLine.includes('NAKIT SATIS') ||
+    normLine.includes('NAKIT HASILAT')
+  ) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Smart Regex & Multi-line Parser for Restaurant & Vega Group Reports
  */
 export function parseReportText(rawText: string): ParsedPdfReport {
@@ -414,6 +565,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
   let grossProductSales = 0;
   let discountAmount = 0;
   let openAccountTotal = 0;
+  let openAccountDiscount = 0;
   let openTablesTotal = 0;
   let kasaGelirGiderTotal = 0;
   let netGeneralTotal = 0;
@@ -517,16 +669,12 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     {
       key: 'kasa',
       name: 'KASA',
-      aliases: ['KASA', 'KASA GELIR GIDER'],
+      aliases: ['KASA'],
     },
   ];
 
-  const groups: ExtractedGroupItem[] = [];
-  let currentGroup: ExtractedGroupItem | null = null;
-
-  // Helper to test if a line is a Category Header
+  // Helper to test if a line matches a known canonical category definition
   const checkCategoryMatch = (normL: string): string | null => {
-    // Remove group/report suffixes or numbers
     const cleanNorm = normL
       .replace(/^[0-9]+[\s.-]+/, '')
       .replace(/[*#=_-]+/g, '')
@@ -553,32 +701,116 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     return null;
   };
 
+  // Helper to format a category name cleanly: uses canonical name if known, else preserves as is
+  const formatCategoryName = (rawLine: string): string => {
+    const clean = rawLine.replace(/^[0-9]+[\s.-]+/, '').replace(/[*#=_-]+/g, '').trim();
+    const matched = checkCategoryMatch(normalizeTR(clean));
+    return matched || clean;
+  };
+
+  const groups: ExtractedGroupItem[] = [];
+  let currentGroup: ExtractedGroupItem | null = null;
+
   // Helper to commit current group and compute its subtotal if items exist
   const commitCurrentGroup = () => {
     if (currentGroup) {
       if (currentGroup.items && currentGroup.items.length > 0) {
         const sumItemsAmount = currentGroup.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
         const sumItemsCount = currentGroup.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-        if (currentGroup.amount <= 0 || sumItemsAmount > 0) {
+        if (currentGroup.amount <= 0 && sumItemsAmount > 0) {
           currentGroup.amount = Math.round(sumItemsAmount * 100) / 100;
         }
-        if (currentGroup.itemCount === undefined || currentGroup.itemCount <= 0 || sumItemsCount > 0) {
+        if ((currentGroup.itemCount === undefined || currentGroup.itemCount <= 0) && sumItemsCount > 0) {
           currentGroup.itemCount = sumItemsCount;
         }
       }
 
-      if (!groups.some((g) => g.id === currentGroup?.id)) {
-        groups.push(currentGroup);
+      if (currentGroup.amount > 0 || (currentGroup.items && currentGroup.items.length > 0)) {
+        if (!groups.some((g) => g.id === currentGroup?.id)) {
+          groups.push(currentGroup);
+        }
       }
       currentGroup = null;
     }
   };
 
+  let seenReportHeader = false;
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     const normLine = normalizeTR(line);
+    const nextLine = lines[i + 1];
 
-    // 1. Report Summary Blocks (Gross, Discount, Open Accounts, Net, Cash, Card)
+    // Check for Report Title ("ÜRÜN GRUBU BAZLI SATIŞ RAPORU")
+    if (
+      normLine.includes('URUN GRUBU BAZLI SATIS RAPORU') ||
+      normLine.includes('URUN GRUBU BAZLI') ||
+      normLine.includes('GRUP BAZLI SATIS RAPORU') ||
+      normLine.includes('URUN GRUBU SATIS RAPORU')
+    ) {
+      seenReportHeader = true;
+      continue;
+    }
+
+    // Skip table column headers or page number lines
+    if (
+      normLine.includes('URUN ADI') ||
+      normLine.includes('MIKTAR') ||
+      normLine.includes('FIYAT') ||
+      normLine.includes('TUTAR') ||
+      normLine.startsWith('SAYFA') ||
+      normLine.startsWith('TARIH')
+    ) {
+      seenReportHeader = true;
+      continue;
+    }
+
+    // 1. Group Subtotal Line Check (e.g. "22 Ad. ₺2.200,00", "75,5 Ad. ₺30.905,00")
+    const subtotal = parseSubtotalLine(line);
+    if (subtotal) {
+      if (currentGroup) {
+        currentGroup.amount = subtotal.amount;
+        currentGroup.itemCount = subtotal.itemCount;
+        commitCurrentGroup();
+      }
+      continue;
+    }
+
+    // 2. Report Summary Blocks (Özet Satırları)
+
+    // Açık Hesap İskonto Toplamı (Separate field, do NOT count as Toplam İskonto)
+    if (normLine.includes('ACIK HESAP ISKONTO') || normLine.includes('ACIK HESAP INDIRIM')) {
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /A[ÇC][Iİ]K\s+HESAP\s+[Iİ]SKONTO(?:\s*TOPLAM[Iİ]?)?/i, nextLine);
+      openAccountDiscount = res.value;
+      if (res.consumedNextLine) i++;
+      continue;
+    }
+
+    // Kasa Gelir Gider Toplamı (Preserves negative sign, do NOT mix with discount)
+    if (normLine.includes('KASA GELIR GIDER') || normLine.includes('GELIR GIDER TOPLAM')) {
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /KASA\s+GEL[Iİ]R\s+G[Iİ]DER(?:\s*TOPLAM[Iİ]?)?/i, nextLine, true);
+      kasaGelirGiderTotal = res.value;
+      if (res.consumedNextLine) i++;
+      continue;
+    }
+
+    // Toplam İskonto (Standard discount)
+    if (
+      (normLine.includes('TOPLAM ISKONTO') || normLine.includes('ISKONTO') || normLine.includes('INDIRIM')) &&
+      !normLine.includes('ACIK HESAP')
+    ) {
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:TOPLAM\s+)?(?:[Iİ]SKONTO|[Iİ]ND[Iİ]R[Iİ]M)(?:\s*(?:TOPLAM[Iİ]?|TUTAR[Iİ]?))?/i, nextLine);
+      if (res.value > 0 || discountAmount <= 0) {
+        discountAmount = res.value;
+      }
+      if (res.consumedNextLine) i++;
+      continue;
+    }
+
+    // Ürün Toplam Satış (Gross product sales)
     if (
       normLine.includes('URUN TOPLAM SATIS') ||
       normLine.includes('URUN TOPLAM') ||
@@ -588,68 +820,56 @@ export function parseReportText(rawText: string): ParsedPdfReport {
       normLine.includes('TOPLAM URUN') ||
       normLine.includes('TOPLAM MATRAH')
     ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) grossProductSales = amt;
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:[ÜU]R[ÜU]N\s+TOPLAM(?:\s*SATI[ŞS])?|BR[ÜU]T\s+SATI[ŞS]|TOPLAM\s+[ÜU]R[ÜU]N)/i, nextLine);
+      if (res.value > 0) grossProductSales = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
+    // Açık Hesap Toplamı (Cari)
     if (
-      normLine.includes('ISKONTO') ||
-      normLine.includes('SKONTO') ||
-      normLine.includes('INDIRIM') ||
-      normLine.includes('YAPILAN ISKONTO') ||
-      normLine.includes('TOPLAM ISKONTO') ||
-      normLine.includes('ISKONTO TUTARI') ||
-      normLine.includes('ISKONTO TOPLAMI') ||
-      normLine.includes('INDIRIM TOPLAMI') ||
-      normLine.includes('INDIRIM TUTARI')
+      !normLine.includes('ISKONTO') &&
+      (normLine.includes('ACIK HESAP') ||
+       normLine.includes('ACIKHESAP') ||
+       normLine.includes('CARI HESAP') ||
+       normLine.includes('CARI SATIS') ||
+       normLine.includes('CARI TOPLAM') ||
+       normLine.includes('VERESIYE'))
     ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) discountAmount = amt;
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:A[ÇC][Iİ]K\s*HESAP|CAR[Iİ]\s*HESAP|CAR[Iİ]\s*SATI[ŞS])(?:\s*TOPLAM[Iİ]?)?/i, nextLine);
+      if (res.value > 0 || openAccountTotal <= 0) openAccountTotal = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
-    if (
-      normLine.includes('ACIK HESAP') ||
-      normLine.includes('ACIKHESAP') ||
-      normLine.includes('CARI HESAP') ||
-      normLine.includes('CARI TOPLAM') ||
-      normLine.includes('CARI SATIS') ||
-      normLine.includes('CARI') ||
-      normLine.includes('VERESIYE') ||
-      normLine.includes('MUSTERI HESAP') ||
-      normLine.includes('ACIK ADISYON')
-    ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) openAccountTotal = amt;
-      continue;
-    }
-
+    // Şuan Açık Olan Masalar
     if (normLine.includes('ACIK OLAN MASALAR') || normLine.includes('ACIK MASALAR') || normLine.includes('ACIK MASA')) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) openTablesTotal = amt;
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /A[ÇC][Iİ]K\s+(?:OLAN\s+)?MASALAR?/i, nextLine);
+      if (res.value > 0) openTablesTotal = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
-    if (normLine.includes('KASA GELIR GIDER') || normLine.includes('GELIR GIDER TOPLAM')) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) kasaGelirGiderTotal = amt;
-      continue;
-    }
-
+    // Genel Kasa Toplamı (Net total sales)
     if (
       normLine.includes('GENEL KASA TOPLAMI') ||
       normLine.includes('GENEL KASA') ||
       normLine.includes('NET SATIS') ||
       normLine.includes('NET CIRO') ||
       normLine.includes('GENEL TOPLAM') ||
-      normLine.includes('KASA TOPLAMI')
+      (normLine.includes('KASA TOPLAMI') && !normLine.includes('GELIR GIDER'))
     ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) netGeneralTotal = amt;
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:GENEL\s+KASA(?:\s*TOPLAM[Iİ]?)?|NET\s+SATI[ŞS]|GENEL\s+TOPLAM)/i, nextLine);
+      if (res.value > 0) netGeneralTotal = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
+    // Kredi Kartı
     if (
       normLine.includes('KREDI KARTI') ||
       normLine.includes('K KARTI') ||
@@ -658,65 +878,45 @@ export function parseReportText(rawText: string): ParsedPdfReport {
       normLine.includes('BANKA KARTI') ||
       normLine.includes('KART TAHSILAT')
     ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) creditCardSales = amt;
+      commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:KRED[Iİ]\s*KART[Iİ]|K\.?\s*KART[Iİ]|POS\s*TOPLAM)/i, nextLine);
+      if (res.value > 0) creditCardSales = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
+    // Nakit Satış
     if (
       normLine.includes('NAKIT SATIS') ||
       normLine.includes('NAKIT HASILAT') ||
       normLine.includes('NAKIT TAHSILAT') ||
       normLine.includes('PESIN') ||
-      normLine.includes('NAKIT')
+      normLine === 'NAKIT'
     ) {
-      const amt = extractMoneyAmount(line, lines[i + 1]);
-      if (amt > 0) cashSales = amt;
-      continue;
-    }
-
-    // Skip generic table headers
-    if (
-      normLine.includes('URUN ADI') ||
-      normLine.includes('MIKTAR') ||
-      normLine.includes('FIYAT') ||
-      normLine.includes('TUTAR') ||
-      normLine.includes('SAYFA') ||
-      normLine.includes('TARIH')
-    ) {
-      continue;
-    }
-
-    // 2. Category Subtotal Line Check (e.g. "Toplam : 30 Ad. 44.820,00 TL" or "30 Ad. 44.820,00")
-    if (
-      currentGroup &&
-      (normLine.startsWith('TOPLAM') ||
-        normLine.startsWith('ARA TOPLAM') ||
-        normLine.startsWith('GRUP TOPLAMI') ||
-        normLine.includes(' GRUP TOPLAMI') ||
-        normLine.endsWith('TOPLAMI'))
-    ) {
-      const nums = line.match(/[0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+/g);
-      if (nums && nums.length > 0) {
-        const lastNum = parseTRNumber(nums[nums.length - 1]);
-        const firstNum = nums.length > 1 ? parseTRNumber(nums[0]) : 0;
-
-        currentGroup.amount = lastNum;
-        if (firstNum > 0 && nums.length > 1) {
-          currentGroup.itemCount = firstNum;
-        }
-      }
       commitCurrentGroup();
+      const res = extractSummaryValue(line, /(?:NAK[Iİ]T\s*(?:SATI[ŞS]|HAS[Iİ]LAT)?|PE[ŞS][Iİ]N)/i, nextLine);
+      if (res.value > 0) cashSales = res.value;
+      if (res.consumedNextLine) i++;
       continue;
     }
 
-    // 3. Product Row Item Check (High priority: Check if line is a valid product before checking category header)
+    // 3. Before Report Header: skip restaurant headers/metadata unless a known category begins
+    if (!seenReportHeader) {
+      const isKnown = checkCategoryMatch(normLine);
+      if (isKnown) {
+        seenReportHeader = true;
+      } else {
+        continue;
+      }
+    }
+
+    // 4. Product Row Item Check
     const prodItem = extractProductFromLine(line);
     if (prodItem) {
       if (!currentGroup) {
         currentGroup = {
           id: `pdf-cat-${Date.now()}-${groups.length}`,
-          name: 'ALKOLLÜ İÇECEK',
+          name: 'DİĞER',
           amount: 0,
           itemCount: 0,
           items: [],
@@ -727,14 +927,15 @@ export function parseReportText(rawText: string): ParsedPdfReport {
       continue;
     }
 
-    // 4. Check Category Header match (only if not a product line)
-    const matchedCategory = checkCategoryMatch(normLine);
-    if (matchedCategory) {
+    // 5. New Group Header Check
+    // If not a product row, not a subtotal line, and not an özet/meta line:
+    // This line is a NEW GROUP HEADER (even if not in categoryDefinitions)!
+    if (!isSummaryOrMetaLine(normLine) && line.length >= 2) {
       commitCurrentGroup();
-
+      const groupName = formatCategoryName(line);
       currentGroup = {
         id: `pdf-cat-${Date.now()}-${groups.length}`,
-        name: matchedCategory,
+        name: groupName,
         amount: 0,
         itemCount: 0,
         items: [],
@@ -775,7 +976,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     if (g.items && g.items.length > 0) {
       const sumAmt = g.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
       const sumQty = g.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-      if (g.amount <= 0 || sumAmt > 0) {
+      if (g.amount <= 0 && sumAmt > 0) {
         g.amount = Math.round(sumAmt * 100) / 100;
       }
       if (!g.itemCount || g.itemCount <= 0) {
@@ -784,7 +985,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     }
   });
 
-  // Clean up any groups or items that might actually be discount or open account summary rows
+  // Clean up any groups that might actually be summary rows
   const sanitizedGroups: ExtractedGroupItem[] = [];
   for (const g of groups) {
     const gNorm = normalizeTR(g.name);
@@ -794,72 +995,56 @@ export function parseReportText(rawText: string): ParsedPdfReport {
       }
       continue;
     }
-    if (gNorm.includes('ACIK HESAP') || gNorm.includes('CARI') || gNorm.includes('VERESIYE')) {
+    if (gNorm.includes('ACIK HESAP') || gNorm.includes('ACIKHESAP') || gNorm === 'CARI TOPLAM') {
       if (openAccountTotal <= 0 && g.amount > 0) {
         openAccountTotal = g.amount;
       }
       continue;
     }
-
-    // Also filter individual items inside this group
-    if (g.items && g.items.length > 0) {
-      const validItems: SoldProductItem[] = [];
-      for (const it of g.items) {
-        const itNorm = normalizeTR(it.name);
-        if (itNorm.includes('ISKONTO') || itNorm.includes('SKONTO') || itNorm.includes('INDIRIM')) {
-          if (discountAmount <= 0 && it.totalPrice > 0) {
-            discountAmount = it.totalPrice;
-          }
-          continue;
-        }
-        if (itNorm.includes('ACIK HESAP') || itNorm.includes('CARI') || itNorm.includes('VERESIYE')) {
-          if (openAccountTotal <= 0 && it.totalPrice > 0) {
-            openAccountTotal = it.totalPrice;
-          }
-          continue;
-        }
-        validItems.push(it);
-      }
-      g.items = validItems;
-      if (g.items.length > 0) {
-        g.amount = g.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
-        g.itemCount = g.items.reduce((s, it) => s + (Number(it.quantity) || 0), 0);
-      }
+    if (gNorm.includes('KASA GELIR GIDER') || gNorm.includes('GENEL KASA')) {
+      continue;
     }
+
     sanitizedGroups.push(g);
   }
 
-  // Secondary fallback for discount and open accounts directly from raw text if not yet found
-  if (discountAmount <= 0) {
-    const discRegex = /(?:TOPLAM\s*I?SKONTO|I?SKONTO\s*(?:TOPLAMI|TUTARI|TUTAR)?|TOPLAM\s*INDIRIM|INDIRIM\s*(?:TOPLAMI|TUTARI)?|YAPILAN\s*I?SKONTO|SATIR\s*I?SKONTOSU|ADISYON\s*I?SKONTOSU|TOPLAM\s*İ?SKONTO|İ?SKONTO\s*(?:TOPLAMI|TUTARI)?|TOPLAM\s*İNDİRİM|İNDİRİM\s*(?:TOPLAMI|TUTARI)?|YAPILAN\s*İ?SKONTO|I?SKONTO|INDIRIM|İ?SKONTO|İNDİRİM)[\s:.\-_=]*([0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+)/i;
-    const mDisc = rawText.match(discRegex);
-    if (mDisc) discountAmount = parseTRNumber(mDisc[1]);
-  }
+  // 3. DOĞRULAMA & KONTROLLER (VALIDATION)
+  const validationWarnings: string[] = [];
 
-  if (openAccountTotal <= 0) {
-    const openAccRegex = /(?:ACIK\s*HESAP(?:\s*(?:TOPLAMI|TUTARI))?|CARI\s*(?:HESAP|SATIS)?(?:\s*(?:TOPLAMI|TUTARI))?|VERESIYE(?:\s*(?:TOPLAMI|SATIS))?|ACIK\s*ADISYON(?:LAR)?|AÇIK\s*HESAP(?:\s*TOPLAMI)?|CARİ\s*HESAP(?:\s*TOPLAMI)?|VERESİYE(?:\s*TOPLAMI)?)[\s:.\-_=]*([0-9]+(?:[.,][0-9]{3})*(?:[.,][0-9]{1,2})|[0-9]+)/i;
-    const mOpen = rawText.match(openAccRegex);
-    if (mOpen) openAccountTotal = parseTRNumber(mOpen[1]);
-  }
-
-  const groupsSum = sanitizedGroups.reduce((acc, g) => acc + (Number(g.amount) || 0), 0);
+  const groupsSum = Math.round(sanitizedGroups.reduce((acc, g) => acc + (Number(g.amount) || 0), 0) * 100) / 100;
 
   // If gross product sales was not detected directly from summary, infer from sum of groups
   if (grossProductSales <= 0 && groupsSum > 0) {
     grossProductSales = groupsSum;
   }
 
-  // If gross and net were found, but discount was not captured by text:
-  if (discountAmount <= 0 && grossProductSales > 0 && netGeneralTotal > 0 && grossProductSales > netGeneralTotal) {
-    const diff = Math.round((grossProductSales - netGeneralTotal - openAccountTotal) * 100) / 100;
-    if (diff > 0) {
-      discountAmount = diff;
+  // Kontrol 1: Tüm grup tutarlarının toplamı "Ürün Toplam Satış" ile aynı mı?
+  // Değilse uyarı göster: "Grup toplamı X, rapordaki Ürün Toplam Satış Y, fark Z".
+  if (grossProductSales > 0) {
+    const diffGroups = Math.round(Math.abs(groupsSum - grossProductSales) * 100) / 100;
+    if (diffGroups > 0.05) {
+      const warnMsg = `Grup toplamı ${formatTRNumber(groupsSum)}, rapordaki Ürün Toplam Satış ${formatTRNumber(grossProductSales)}, fark ${formatTRNumber(diffGroups)}`;
+      validationWarnings.push(warnMsg);
+      console.warn(`[Vega Rapor Doğrulama]: ${warnMsg}`);
     }
   }
 
-  // If net general total was not found, calculate: Gross - Discount - OpenAccounts
-  if (netGeneralTotal <= 0 && grossProductSales > 0) {
-    netGeneralTotal = Math.max(0, grossProductSales - discountAmount - openAccountTotal);
+  // Kontrol 2: Ürün Toplam Satış - İskonto - Açık Hesap Toplamı = Genel Kasa Toplamı mı?
+  // Tutmuyorsa iskontoyu bu formülden hesapla (Ürün Toplam Satış - Genel Kasa - Açık Hesap) ve uyarı göster.
+  if (grossProductSales > 0 && netGeneralTotal > 0) {
+    const expectedGenelKasa = Math.round((grossProductSales - discountAmount - openAccountTotal) * 100) / 100;
+    const diffKasa = Math.round(Math.abs(expectedGenelKasa - netGeneralTotal) * 100) / 100;
+    if (diffKasa > 0.05) {
+      const calculatedDiscount = Math.round((grossProductSales - netGeneralTotal - openAccountTotal) * 100) / 100;
+      const warnMsg = `Ürün Toplam Satış (${formatTRNumber(grossProductSales)}) - İskonto (${formatTRNumber(discountAmount)}) - Açık Hesap (${formatTRNumber(openAccountTotal)}) = ${formatTRNumber(expectedGenelKasa)}, Genel Kasa (${formatTRNumber(netGeneralTotal)}) ile tutmuyor. İskonto ${formatTRNumber(calculatedDiscount)} olarak hesaplandı.`;
+      validationWarnings.push(warnMsg);
+      console.warn(`[Vega Rapor Doğrulama]: ${warnMsg}`);
+      if (calculatedDiscount >= 0) {
+        discountAmount = calculatedDiscount;
+      }
+    }
+  } else if (netGeneralTotal <= 0 && grossProductSales > 0) {
+    netGeneralTotal = Math.max(0, Math.round((grossProductSales - discountAmount - openAccountTotal) * 100) / 100);
   }
 
   // Net total sales for the day
@@ -899,6 +1084,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     discountAmount,
     discountTotal: discountAmount,
     openAccountTotal,
+    openAccountDiscount,
     openTablesTotal,
     kasaGelirGiderTotal,
     netGeneralTotal,
@@ -908,6 +1094,7 @@ export function parseReportText(rawText: string): ParsedPdfReport {
     detectedDate,
     tableCount,
     guestCount,
+    validationWarnings,
   };
 }
 
