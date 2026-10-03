@@ -173,6 +173,8 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
     const detailTotals = filteredSupplierInvoices.reduce(
       (acc, inv) => {
         const amounts = getInvoiceAmounts(inv);
+        acc.gross += inv.grossAmount || (amounts.netAmount + (Number(inv.discountAmount) || 0));
+        acc.discount += Number(inv.discountAmount) || 0;
         acc.net += amounts.netAmount;
         acc.vat += amounts.vatAmount;
         acc.totalWithVat += amounts.totalWithVat;
@@ -180,7 +182,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
         acc.debt += amounts.remainingDebt;
         return acc;
       },
-      { net: 0, vat: 0, totalWithVat: 0, paid: 0, debt: 0 }
+      { gross: 0, discount: 0, net: 0, vat: 0, totalWithVat: 0, paid: 0, debt: 0 }
     );
 
     return (
@@ -318,7 +320,8 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                 <tr>
                   <th className="py-2.5 px-3">Tarih</th>
                   <th className="py-2.5 px-3">Fatura No</th>
-                  <th className="py-2.5 px-3 text-right">KDV Hariç</th>
+                  <th className="py-2.5 px-3 text-right">İskonto</th>
+                  <th className="py-2.5 px-3 text-right">KDV Hariç Net</th>
                   <th className="py-2.5 px-3 text-right">KDV</th>
                   <th className="py-2.5 px-3 text-right">KDV Dahil</th>
                   <th className="py-2.5 px-3 text-right">Ödenen</th>
@@ -330,7 +333,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
               <tbody className="divide-y divide-[#21262d]">
                 {filteredSupplierInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="py-8 text-center text-gray-500">
+                    <td colSpan={10} className="py-8 text-center text-gray-500">
                       Bu dönemde faturaya rastlanmadı.
                     </td>
                   </tr>
@@ -378,6 +381,21 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                                 </span>
                               )}
                             </div>
+                            {inv.description && (
+                              <div className="text-[11px] text-gray-400 font-sans mt-0.5 flex items-center gap-1 font-normal">
+                                <FileText className="w-3 h-3 text-gray-500 shrink-0" />
+                                <span className="truncate max-w-[200px]" title={inv.description}>
+                                  {inv.description}
+                                </span>
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right">
+                            {inv.discountAmount !== undefined && inv.discountAmount > 0 ? (
+                              <span className="text-amber-400 font-semibold">-{formatCurrency(inv.discountAmount)}</span>
+                            ) : (
+                              <span className="text-gray-500">-</span>
+                            )}
                           </td>
                           <td className="py-2.5 px-3 text-right text-gray-300">
                             {formatCurrency(amounts.netAmount)}
@@ -410,7 +428,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                         {/* Accordion Line Items */}
                         {isExpanded && (
                           <tr className="bg-[#12161f]">
-                            <td colSpan={9} className="p-4 border-y border-[#30363d]">
+                            <td colSpan={10} className="p-4 border-y border-[#30363d]">
                               <div className="space-y-2">
                                 <div className="text-[11px] font-bold text-orange-400 uppercase tracking-wider flex items-center space-x-1.5">
                                   <Package className="w-3.5 h-3.5" />
@@ -426,6 +444,7 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                                           <th className="py-1.5 px-2.5">Kategori</th>
                                           <th className="py-1.5 px-2.5 text-right">Miktar</th>
                                           <th className="py-1.5 px-2.5 text-right">Birim Fiyat</th>
+                                          <th className="py-1.5 px-2.5 text-center">İskonto</th>
                                           <th className="py-1.5 px-2.5 text-center">KDV (%)</th>
                                           <th className="py-1.5 px-2.5 text-right">KDV Hariç Tutar</th>
                                           <th className="py-1.5 px-2.5 text-right">KDV Dahil Toplam</th>
@@ -436,9 +455,11 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                                           const qty = Number(it.quantity) || 0;
                                           const price = Number(it.unitPrice) || 0;
                                           const rate = Number(it.vatRate) || 0;
-                                          const lineNet = Math.round((qty * price + Number.EPSILON) * 100) / 100;
+                                          const lineGross = Math.round((qty * price + Number.EPSILON) * 100) / 100;
+                                          const lineNet = it.total !== undefined ? Number(it.total) : lineGross;
                                           const lineVat = Math.round(((lineNet * rate) / 100 + Number.EPSILON) * 100) / 100;
                                           const lineTotal = Math.round((lineNet + lineVat + Number.EPSILON) * 100) / 100;
+                                          const hasDiscount = it.discountAmount !== undefined && it.discountAmount > 0;
 
                                           return (
                                             <tr key={it.id} className="hover:bg-[#21262d]/50">
@@ -453,6 +474,15 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                                               </td>
                                               <td className="py-1.5 px-2.5 text-right text-gray-300">
                                                 {formatCurrency(it.unitPrice)}
+                                              </td>
+                                              <td className="py-1.5 px-2.5 text-center">
+                                                {hasDiscount ? (
+                                                  <span className="text-amber-400 font-semibold">
+                                                    {it.discountRate ? `-%${it.discountRate}` : ''} (-{formatCurrency(it.discountAmount!)})
+                                                  </span>
+                                                ) : (
+                                                  <span className="text-gray-500">-</span>
+                                                )}
                                               </td>
                                               <td className="py-1.5 px-2.5 text-center text-gray-400">
                                                 %{it.vatRate}
@@ -489,6 +519,9 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                   <tr>
                     <td colSpan={2} className="py-2.5 px-3 text-right text-gray-400">
                       DÖNEM TOPLAMLARI:
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-amber-400">
+                      {detailTotals.discount > 0 ? `-${formatCurrency(detailTotals.discount)}` : '-'}
                     </td>
                     <td className="py-2.5 px-3 text-right text-gray-200">
                       {formatCurrency(detailTotals.net)}

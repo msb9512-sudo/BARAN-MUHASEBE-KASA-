@@ -223,8 +223,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
           </p>
           <div className="flex items-center justify-between text-[11px] font-mono mt-2 pt-2 border-t border-[#30363d]">
             <span className="text-gray-400">{currentEntry.posReports.length} Terminal Z</span>
-            <span className={reg.isPosReconciled ? 'text-emerald-400' : 'text-rose-400'}>
-              {reg.isPosReconciled ? '✓ Uyumlu' : '⚠ Fark Var'}
+            <span
+              className={
+                reg.isNoVegaCardSales
+                  ? 'text-sky-400'
+                  : reg.isPosReconciled
+                  ? 'text-emerald-400'
+                  : 'text-rose-400'
+              }
+            >
+              {reg.isNoVegaCardSales
+                ? 'POS Baz Alındı'
+                : reg.isPosReconciled
+                ? '✓ Uyumlu'
+                : '⚠ Fark Var'}
             </span>
           </div>
         </div>
@@ -291,12 +303,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               </div>
               <span
                 className={`px-2.5 py-0.5 text-[10px] rounded font-mono font-bold uppercase border ${
-                  reg.isPosReconciled
+                  reg.isNoVegaCardSales
+                    ? 'bg-sky-500/10 text-sky-400 border-sky-500/20'
+                    : reg.isPosReconciled
                     ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20'
                     : 'bg-rose-500/10 text-rose-400 border-rose-500/20'
                 }`}
               >
-                {reg.isPosReconciled ? '✓ POS Tam Uyumlu' : '⚠ Fark Tespit Edildi'}
+                {reg.isNoVegaCardSales
+                  ? 'Kart satışı raporda yok, POS toplamı baz alındı'
+                  : reg.isPosReconciled
+                  ? '✓ POS Tam Uyumlu'
+                  : '⚠ Fark Tespit Edildi'}
               </span>
             </div>
 

@@ -17,6 +17,7 @@ import {
   Sparkles,
   ArrowRight,
   Coins,
+  Info,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts } from '../types';
@@ -262,8 +263,20 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                   <CreditCard className="w-4 h-4 text-blue-400" />
                   <span>2. POS Z RAPORLARI DENETİMİ</span>
                 </div>
-                <span className={`text-xs px-2.5 py-0.5 rounded font-bold ${reg.isPosReconciled ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'}`}>
-                  {reg.isPosReconciled ? '✓ UYUMLU' : `${reg.posVegaDifference > 0 ? '+' : ''}${reg.posVegaDifference.toLocaleString('tr-TR')} ₺ FARK`}
+                <span
+                  className={`text-xs px-2.5 py-0.5 rounded font-bold ${
+                    reg.isNoVegaCardSales
+                      ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30'
+                      : reg.isPosReconciled
+                      ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/30'
+                      : 'bg-rose-500/20 text-rose-300 border border-rose-500/30'
+                  }`}
+                >
+                  {reg.isNoVegaCardSales
+                    ? 'Kart satışı raporda yok, POS toplamı baz alındı'
+                    : reg.isPosReconciled
+                    ? '✓ UYUMLU'
+                    : `${reg.posVegaDifference > 0 ? '+' : ''}${reg.posVegaDifference.toLocaleString('tr-TR')} ₺ FARK`}
                 </span>
               </div>
               <div className="p-3.5 divide-y divide-[#21262d] flex-1">
@@ -426,12 +439,16 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
             {/* Check 3: POS vs Vega Match */}
             <div
               className={`p-3.5 rounded-xl border flex items-start space-x-3 ${
-                reg.isPosReconciled
+                reg.isNoVegaCardSales
+                  ? 'bg-[#0d1117] border-sky-500/30 text-sky-300'
+                  : reg.isPosReconciled
                   ? 'bg-[#0d1117] border-emerald-500/30 text-emerald-300'
                   : 'bg-[#0d1117] border-rose-500/30 text-rose-300'
               }`}
             >
-              {reg.isPosReconciled ? (
+              {reg.isNoVegaCardSales ? (
+                <Info className="w-4 h-4 text-sky-400 flex-shrink-0 mt-0.5" />
+              ) : reg.isPosReconciled ? (
                 <CheckCircle2 className="w-4 h-4 text-emerald-400 flex-shrink-0 mt-0.5" />
               ) : (
                 <AlertCircle className="w-4 h-4 text-rose-400 flex-shrink-0 mt-0.5" />
@@ -439,7 +456,9 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
               <div className="flex-1 min-w-0">
                 <div className="font-bold text-white truncate">3. POS Mutabakatı</div>
                 <div className="text-[11px] opacity-80 text-gray-300 mt-0.5 truncate">
-                  {reg.isPosReconciled
+                  {reg.isNoVegaCardSales
+                    ? 'Kart satışı raporda yok, POS toplamı baz alındı'
+                    : reg.isPosReconciled
                     ? 'Kredi kartları tam uyumlu'
                     : `Fark: ${reg.posVegaDifference > 0 ? '+' : ''}${reg.posVegaDifference.toLocaleString('tr-TR')} ₺`}
                 </div>

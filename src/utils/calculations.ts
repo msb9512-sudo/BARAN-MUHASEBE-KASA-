@@ -119,6 +119,7 @@ export interface DailyRegisterSummary {
   posTotal: number;
   posVegaDifference: number;
   isPosReconciled: boolean;
+  isNoVegaCardSales: boolean;
   cashExpenses: number;
   creditCardExpenses: number;
   invoiceCashPayments: number;
@@ -166,8 +167,14 @@ export function calculateDailyRegister(
     }
   }
 
-  const posVegaDifference = posTotal > 0 && creditCardSales > 0 ? posTotal - creditCardSales : 0;
-  const isPosReconciled = Math.abs(posVegaDifference) < 0.01;
+  const isNoVegaCardSales =
+    creditCardSales <= 0 ||
+    dailyEntry.vegaReport?.hasVegaCardSales === false ||
+    dailyEntry.vegaReport?.cardSalesFromPos === true;
+
+  const posVegaDifference =
+    !isNoVegaCardSales && posTotal > 0 && creditCardSales > 0 ? posTotal - creditCardSales : 0;
+  const isPosReconciled = !isNoVegaCardSales && Math.abs(posVegaDifference) < 0.01;
 
   const cashExpenses = getDailyCashExpenses(expenses, dailyEntry.date);
   const creditCardExpenses = getDailyCreditCardExpenses(expenses, dailyEntry.date);
@@ -197,6 +204,7 @@ export function calculateDailyRegister(
     posTotal,
     posVegaDifference,
     isPosReconciled,
+    isNoVegaCardSales,
     cashExpenses,
     creditCardExpenses,
     invoiceCashPayments,

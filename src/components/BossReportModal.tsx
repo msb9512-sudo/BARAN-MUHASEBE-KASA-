@@ -241,7 +241,13 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
       entry.vaultTransfer?.transferred ? `🔐 *Ana Kasaya Devredilen Nakit:* ${entry.vaultTransfer.amount.toLocaleString('tr-TR')} ₺` : '',
       `───────────────────────────`,
       `🔍 *DENETİM VE KONTROL:*`,
-      `• *Vega / POS Kontrol:* ${reg.isPosReconciled ? '✓ UYUMLU (Fark Yok)' : `⚠ ${Math.abs(reg.posVegaDifference).toLocaleString('tr-TR')} ₺ FARK VAR`}`,
+      `• *Vega / POS Kontrol:* ${
+        reg.isNoVegaCardSales
+          ? 'Kart satışı raporda yok, POS toplamı baz alındı'
+          : reg.isPosReconciled
+          ? '✓ UYUMLU (Fark Yok)'
+          : `⚠ ${Math.abs(reg.posVegaDifference).toLocaleString('tr-TR')} ₺ FARK VAR`
+      }`,
       `• *Kasa Mutabakatı:* ${reg.isCashBalanced ? '✓ UYUMLU (Fark Yok)' : `⚠ ${reg.cashDifference > 0 ? '+' : ''}${reg.cashDifference.toLocaleString('tr-TR')} ₺ KASA FARKI`}`,
     ];
 
@@ -785,7 +791,9 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
             {/* POS vs Vega */}
             <div
               className={`p-4 rounded-lg border flex items-center justify-between ${
-                reg.isPosReconciled
+                reg.isNoVegaCardSales
+                  ? 'bg-[#161b22] border-sky-500/30 text-sky-300'
+                  : reg.isPosReconciled
                   ? 'bg-[#161b22] border-emerald-500/30 text-emerald-300'
                   : 'bg-[#161b22] border-rose-500/30 text-rose-300'
               }`}
@@ -793,10 +801,16 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
               <div>
                 <span className="text-[11px] uppercase font-semibold text-gray-400">Vega / POS Kontrolü</span>
                 <div className="font-bold text-sm mt-0.5">
-                  {reg.isPosReconciled ? '✓ UYUMLU (Tam Eşleşme)' : `⚠ ${Math.abs(reg.posVegaDifference).toLocaleString('tr-TR')} ₺ FARK`}
+                  {reg.isNoVegaCardSales
+                    ? 'Kart satışı raporda yok, POS toplamı baz alındı'
+                    : reg.isPosReconciled
+                    ? '✓ UYUMLU (Tam Eşleşme)'
+                    : `⚠ ${Math.abs(reg.posVegaDifference).toLocaleString('tr-TR')} ₺ FARK`}
                 </div>
               </div>
-              <div className="text-xl">{reg.isPosReconciled ? '✓' : '⚠'}</div>
+              <div className="text-xl">
+                {reg.isNoVegaCardSales ? 'ℹ' : reg.isPosReconciled ? '✓' : '⚠'}
+              </div>
             </div>
 
             {/* Cash Balance */}

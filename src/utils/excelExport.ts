@@ -79,16 +79,18 @@ export function exportDailyRegisterToExcel(
   // 3. Day Invoices Sheet
   const dayInvoices = invoices.filter((i) => i.isActive && i.date === entry.date);
   const invoiceData = [
-    ['Tarih', 'Fatura No', 'Tedarikçi / Firma', 'Kategori', 'Tutar (TL)', 'KDV', 'Ödeme Durumu', 'Vade'],
+    ['Tarih', 'Fatura No', 'Tedarikçi / Firma', 'Kategori', 'İskonto Tutarı', 'Tutar (TL)', 'KDV', 'Ödeme Durumu', 'Vade', 'Açıklama'],
     ...dayInvoices.map((inv) => [
       formatDateTR(inv.date),
       inv.invoiceNo,
       inv.supplierName,
       inv.category,
+      inv.discountAmount || 0,
       inv.totalAmount,
       inv.vatAmount,
       inv.paymentStatus === 'paid' ? 'Ödendi' : inv.paymentStatus === 'partial' ? 'Kısmi Ödendi' : 'Ödenmedi',
       formatDateTR(inv.dueDate),
+      inv.description || '',
     ]),
   ];
   const wsInvoices = XLSX.utils.aoa_to_sheet(invoiceData);
@@ -195,7 +197,7 @@ export function exportMonthlyReportToExcel(
   // 2. Invoices of the month
   const monthInvoices = invoices.filter((i) => i.isActive && i.date.startsWith(month));
   const invoiceRows = [
-    ['Tarih', 'Fatura No', 'Firma Adı', 'Kategori', 'KDV Hariç Tutar', 'KDV Tutarı', 'KDV Dahil Toplam', 'Ödenen', 'Kalan Bakiye', 'Durum', 'Vade'],
+    ['Tarih', 'Fatura No', 'Firma Adı', 'Kategori', 'İskonto Tutarı', 'KDV Hariç Net Tutar', 'KDV Tutarı', 'KDV Dahil Toplam', 'Ödenen', 'Kalan Bakiye', 'Durum', 'Vade', 'Açıklama'],
     ...monthInvoices.map((inv) => {
       const paid = inv.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
       const remaining = Math.max(0, inv.totalAmount - paid);
@@ -205,6 +207,7 @@ export function exportMonthlyReportToExcel(
         inv.invoiceNo,
         inv.supplierName,
         inv.category,
+        inv.discountAmount || 0,
         net,
         inv.vatAmount || 0,
         inv.totalAmount,
@@ -212,6 +215,7 @@ export function exportMonthlyReportToExcel(
         remaining,
         inv.paymentStatus === 'paid' ? 'Ödendi' : inv.paymentStatus === 'partial' ? 'Kısmi Ödendi' : 'Ödenmedi',
         formatDateTR(inv.dueDate),
+        inv.description || '',
       ];
     }),
   ];
@@ -234,7 +238,9 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     'Tedarikçi / Firma',
     'Vergi No',
     'Kategori',
-    'KDV Hariç Tutar',
+    'Ara Toplam (Brüt)',
+    'İskonto Tutarı',
+    'KDV Hariç Net Tutar',
     'KDV Tutarı',
     'KDV Dahil Toplam',
     'KDV Oranı (%)',
@@ -252,12 +258,16 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
       .map((inv) => {
         const paid = inv.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
         const net = inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount;
+        const discount = Number(inv.discountAmount) || 0;
+        const gross = inv.grossAmount !== undefined ? inv.grossAmount : Math.round((net + discount + Number.EPSILON) * 100) / 100;
         return [
           formatDateTR(inv.date),
           inv.invoiceNo,
           inv.supplierName,
           inv.taxNumber || '-',
           inv.category,
+          gross,
+          discount,
           net,
           inv.vatAmount || 0,
           inv.totalAmount,
@@ -283,9 +293,11 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     'Ürün Kategorisi',
     'Miktar',
     'Birim',
-    'Birim Fiyat (KDV Hariç)',
+    'Birim Fiyat',
+    'İskonto Oranı (%)',
+    'Kalem İskontosu (TL)',
     'KDV (%)',
-    'KDV Hariç Tutar',
+    'KDV Hariç Net Tutar',
     'KDV Tutarı',
     'KDV Dahil Toplam',
   ];
@@ -295,19 +307,26 @@ export function exportInvoicesToExcel(invoices: Invoice[]) {
     .filter((i) => i.isActive)
     .forEach((inv) => {
       inv.items.forEach((it) => {
-        const lineNet = Math.round((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) * 100) / 100;
-        const lineVat = Math.round(lineNet * ((Number(it.vatRate) || 0) / 100) * 100) / 100;
-        const lineTotalWithVat = Math.round((lineNet + lineVat) * 100) / 100;
+        const qty = Number(it.quantity) || 0;
+        const price = Number(it.unitPrice) || 0;
+        const rate = Number(it.vatRate) || 0;
+        const grossLine = Math.round((qty * price + Number.EPSILON) * 100) / 100;
+        const discountAmount = Number(it.discountAmount) || 0;
+        const lineNet = it.total !== undefined ? Number(it.total) : Math.max(0, Math.round((grossLine - discountAmount + Number.EPSILON) * 100) / 100);
+        const lineVat = Math.round(((lineNet * rate) / 100 + Number.EPSILON) * 100) / 100;
+        const lineTotalWithVat = Math.round((lineNet + lineVat + Number.EPSILON) * 100) / 100;
         itemRows.push([
           formatDateTR(inv.date),
           inv.invoiceNo,
           inv.supplierName,
           it.productName,
           it.category,
-          it.quantity,
+          qty,
           it.unit,
-          it.unitPrice,
-          it.vatRate,
+          price,
+          it.discountRate || (grossLine > 0 && discountAmount > 0 ? Math.round(((discountAmount / grossLine) * 100) * 100) / 100 : 0),
+          discountAmount,
+          rate,
           lineNet,
           lineVat,
           lineTotalWithVat,

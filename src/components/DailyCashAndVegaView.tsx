@@ -27,7 +27,13 @@ import {
 } from 'lucide-react';
 import { DailyEntry, CashExpense, Invoice, PosDevice, PosZReportItem, CashWithdrawalItem } from '../types';
 import { formatCurrency, parseNumberInput, formatDateTR, evaluateMathExpression } from '../utils/formatters';
-import { calculateDailyRegister, getPosTotal } from '../utils/calculations';
+import {
+  calculateDailyRegister,
+  getPosTotal,
+  getDailyCashExpenses,
+  getDailyInvoiceCashPayments,
+  getDailyCashWithdrawals,
+} from '../utils/calculations';
 import { extractTextFromPdf, parseReportText } from '../utils/pdfParser';
 import { SmartMoneyInput } from './SmartMoneyInput';
 import { CashierStepFooter } from './CashierStepFooter';
@@ -112,18 +118,36 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         const grossSales = parsed.grossProductSales || totalSales;
         const discountTotal = parsed.discountAmount || 0;
         const openAccountTotal = parsed.openAccountTotal || 0;
-        const ccSales = parsed.creditCardSales || 0;
+        const rawReportCC = parsed.creditCardSales || 0;
         const otherSales = parsed.otherSales || 0;
-        // Nakit = Ciro - Kart - Diğer (veya raporda doğrudan yazan nakit)
-        const autoCash =
-          parsed.cashSales > 0
-            ? parsed.cashSales
-            : Math.max(0, totalSales - ccSales - otherSales);
 
-        // Kasa giderleri ve faturaları hesaba katarak kalan nakiti hesapla
+        // 1) NAKİT SATIŞ HESABI: kart satışı olarak şunu kullan:
+        // efektifKart = (mevcut posReports toplamı > 0) ? posReports toplamı : raporun creditCardSales değeri.
+        // cashSales = max(0, totalSales - efektifKart - otherSales).
+        // Rapor nakit yazmıyorsa (cashSales <= 0) bu formül kullanılsın.
+        // creditCardSales alanına da efektifKart yazılsın.
+        const posTotal = getPosTotal(currentEntry.posReports);
+        const efektifKart = posTotal > 0 ? posTotal : rawReportCC;
+        const derivedCash = Math.max(0, totalSales - efektifKart - otherSales);
+        const autoCash = (parsed.cashSales && parsed.cashSales > 0) ? parsed.cashSales : derivedCash;
+
+        // 2) FİİLİ SAYILAN KASA: içe aktarma, kullanıcının elle girdiği actualCashInHand değerinin ÜSTÜNE YAZMASIN.
+        // - currentEntry.actualCashInHand > 0 ise aynen koru.
+        // - 0 ise: openingCash + cashSales - totalCashOutflow hesapla,
+        //   sonuç 0 veya daha büyükse yaz; negatifse 0 bırak.
         const openingCash = Number(currentEntry.openingCash) || 0;
-        const totalOutflow = reg.totalCashOutflow;
+        const dailyCashExpenses = getDailyCashExpenses(expenses, currentEntry.date);
+        const dailyInvoiceCash = getDailyInvoiceCashPayments(invoices, currentEntry.date);
+        const withdrawals = getDailyCashWithdrawals(currentEntry);
+        const totalOutflow = dailyCashExpenses + dailyInvoiceCash + withdrawals;
         const autoRemainingCash = openingCash + autoCash - totalOutflow;
+
+        const currentActualCash = Number(currentEntry.actualCashInHand) || 0;
+        const targetActualCash = currentActualCash > 0
+          ? currentActualCash
+          : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+
+        const isGroupReportWithoutCardSales = rawReportCC <= 0;
 
         const updatedVega = {
           ...currentEntry.vegaReport,
@@ -133,8 +157,10 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
           openAccountTotal: openAccountTotal,
           totalSales: totalSales,
           cashSales: autoCash,
-          creditCardSales: ccSales,
+          creditCardSales: efektifKart,
           otherSales: otherSales,
+          hasVegaCardSales: !isGroupReportWithoutCardSales,
+          cardSalesFromPos: isGroupReportWithoutCardSales && posTotal > 0,
           complimentaryAmount: parsed.complimentaryAmount || currentEntry.vegaReport.complimentaryAmount,
           cancelledAmount: parsed.cancelledAmount || currentEntry.vegaReport.cancelledAmount,
           tableCount: parsed.tableCount || currentEntry.vegaReport.tableCount,
@@ -160,7 +186,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
           vegaReport: updatedVega,
           vegaGroups: parsed.groups && parsed.groups.length > 0 ? parsed.groups : currentEntry.vegaGroups,
           posReports: updatedPosReports,
-          actualCashInHand: autoRemainingCash, // Otomatik kalan nakite eşitler
+          actualCashInHand: targetActualCash,
           updatedAt: new Date().toISOString(),
         };
 
@@ -220,6 +246,9 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + autoCash - reg.totalCashOutflow;
 
+    const currentActual = Number(currentEntry.actualCashInHand) || 0;
+    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+
     onUpdateEntry({
       ...currentEntry,
       vegaReport: {
@@ -227,7 +256,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         cashSales: autoCash,
         creditCardSales: cc,
       },
-      actualCashInHand: autoRemainingCash,
+      actualCashInHand: targetActual,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -294,10 +323,13 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + calculatedCashSales - reg.totalCashOutflow;
 
+    const currentActual = Number(currentEntry.actualCashInHand) || 0;
+    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+
     onUpdateEntry({
       ...currentEntry,
       vegaReport: updatedVega,
-      actualCashInHand: autoRemainingCash,
+      actualCashInHand: targetActual,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -371,6 +403,9 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + autoCashSales - reg.totalCashOutflow;
 
+    const currentActual = Number(currentEntry.actualCashInHand) || 0;
+    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+
     onUpdateEntry({
       ...currentEntry,
       posReports: updatedPos,
@@ -379,7 +414,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         creditCardSales: newPosTotal,
         cashSales: autoCashSales,
       },
-      actualCashInHand: autoRemainingCash,
+      actualCashInHand: targetActual,
       updatedAt: new Date().toISOString(),
     });
   };

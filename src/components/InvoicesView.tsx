@@ -19,11 +19,197 @@ import {
   Package,
   Layers,
   Sparkles,
+  Tag,
+  Percent,
 } from 'lucide-react';
 import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportInvoicesToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
+
+export interface FormInvoiceItemRow extends InvoiceItem {
+  discountType: '%' | 'TL';
+  discountInput: string | number;
+}
+
+export function calculateInvoiceBreakdown(
+  items: FormInvoiceItemRow[],
+  generalDiscountType: '%' | 'TL',
+  generalDiscountValue: string | number
+) {
+  const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+
+  let grossAmount = 0;
+  let lineDiscountTotal = 0;
+  let postLineSubtotal = 0;
+
+  // 1. Process Line Items
+  const processedItems = items.map((it) => {
+    const qty = Number(it.quantity) || 0;
+    const price = Number(it.unitPrice) || 0;
+    const grossLine = round2(qty * price);
+    const dType = it.discountType || (it.discountRate !== undefined ? '%' : it.discountAmount !== undefined ? 'TL' : '%');
+
+    let dValNum = 0;
+    if (it.discountInput !== undefined && it.discountInput !== '') {
+      dValNum = typeof it.discountInput === 'number'
+        ? it.discountInput
+        : parseFloat(String(it.discountInput).replace(',', '.')) || 0;
+    } else if (dType === '%' && it.discountRate !== undefined) {
+      dValNum = Number(it.discountRate) || 0;
+    } else if (dType === 'TL' && it.discountAmount !== undefined) {
+      dValNum = Number(it.discountAmount) || 0;
+    }
+
+    let lineDiscount = 0;
+    let lineRate = 0;
+
+    if (dValNum > 0) {
+      if (dType === '%') {
+        lineRate = Math.min(100, Math.max(0, dValNum));
+        lineDiscount = round2(grossLine * (lineRate / 100));
+      } else {
+        lineDiscount = Math.min(grossLine, Math.max(0, dValNum));
+        lineRate = grossLine > 0 ? round2((lineDiscount / grossLine) * 100) : 0;
+      }
+    }
+
+    const postLineTotal = Math.max(0, round2(grossLine - lineDiscount));
+
+    grossAmount += grossLine;
+    lineDiscountTotal += lineDiscount;
+    postLineSubtotal += postLineTotal;
+
+    return {
+      it,
+      qty,
+      price,
+      grossLine,
+      lineDiscount,
+      lineRate,
+      postLineTotal,
+      vatRate: Number(it.vatRate) || 0,
+    };
+  });
+
+  grossAmount = round2(grossAmount);
+  lineDiscountTotal = round2(lineDiscountTotal);
+  postLineSubtotal = round2(postLineSubtotal);
+
+  // 2. Process General Discount
+  let genValNum = 0;
+  if (generalDiscountValue !== undefined && generalDiscountValue !== '') {
+    genValNum = typeof generalDiscountValue === 'number'
+      ? generalDiscountValue
+      : parseFloat(String(generalDiscountValue).replace(',', '.')) || 0;
+  }
+
+  let generalDiscountAmount = 0;
+  let generalDiscountRate = 0;
+
+  if (genValNum > 0 && postLineSubtotal > 0) {
+    if (generalDiscountType === '%') {
+      generalDiscountRate = Math.min(100, Math.max(0, genValNum));
+      generalDiscountAmount = round2(postLineSubtotal * (generalDiscountRate / 100));
+    } else {
+      generalDiscountAmount = round2(genValNum);
+      generalDiscountRate = round2((generalDiscountAmount / postLineSubtotal) * 100);
+    }
+  }
+
+  const totalDiscountAmount = round2(lineDiscountTotal + generalDiscountAmount);
+  const isDiscountExceeded = totalDiscountAmount > grossAmount;
+  const netAmount = Math.max(0, round2(grossAmount - totalDiscountAmount));
+
+  // 3. Proportional Distribution of General Discount for Exact VAT by Rate
+  const vatBreakdown: Record<number, { base: number; vat: number }> = {
+    1: { base: 0, vat: 0 },
+    10: { base: 0, vat: 0 },
+    20: { base: 0, vat: 0 },
+  };
+
+  const itemResults = processedItems.map((p) => {
+    let allocatedGen = 0;
+    if (postLineSubtotal > 0 && generalDiscountAmount > 0) {
+      allocatedGen = (p.postLineTotal / postLineSubtotal) * generalDiscountAmount;
+    }
+    const effectiveBase = Math.max(0, p.postLineTotal - allocatedGen);
+    const lineVat = round2((effectiveBase * p.vatRate) / 100);
+    const lineTotalWithVat = round2(effectiveBase + lineVat);
+
+    if (!vatBreakdown[p.vatRate]) {
+      vatBreakdown[p.vatRate] = { base: 0, vat: 0 };
+    }
+    vatBreakdown[p.vatRate].base += effectiveBase;
+    vatBreakdown[p.vatRate].vat += lineVat;
+
+    return {
+      ...p,
+      allocatedGenDiscount: allocatedGen,
+      effectiveBase,
+      lineVat,
+      lineTotalWithVat,
+    };
+  });
+
+  // Round vat breakdown bases and vats
+  let computedVat = 0;
+  Object.keys(vatBreakdown).forEach((k) => {
+    const rate = Number(k);
+    vatBreakdown[rate].base = round2(vatBreakdown[rate].base);
+    vatBreakdown[rate].vat = round2(vatBreakdown[rate].vat);
+    computedVat += vatBreakdown[rate].vat;
+  });
+  computedVat = round2(computedVat);
+  const totalAmount = round2(netAmount + computedVat);
+
+  return {
+    grossAmount,
+    lineDiscountTotal,
+    postLineSubtotal,
+    generalDiscountAmount,
+    generalDiscountRate,
+    totalDiscountAmount,
+    netAmount,
+    vatAmount: computedVat,
+    totalAmount,
+    vatBreakdown,
+    items: itemResults,
+    isDiscountExceeded,
+  };
+}
+
+const InvoiceDescriptionSnippet: React.FC<{ text: string }> = ({ text }) => {
+  const [expanded, setExpanded] = useState(false);
+  if (!text || !text.trim()) return null;
+  const isLong = text.length > 55;
+
+  return (
+    <div
+      onClick={(e) => {
+        if (isLong) {
+          e.stopPropagation();
+          setExpanded(!expanded);
+        }
+      }}
+      className={`text-xs text-gray-300 bg-[#0d1117] px-2.5 py-1.5 rounded-lg border border-[#21262d] inline-flex items-center gap-1.5 max-w-full ${
+        isLong ? 'cursor-pointer hover:border-gray-600 transition' : ''
+      }`}
+      title={isLong && !expanded ? 'Tamamını görmek için tıklayın' : undefined}
+    >
+      <FileText className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+      <span className="text-gray-400 font-semibold shrink-0 text-[11px]">Not:</span>
+      <span className="font-sans text-gray-300 break-words">
+        {expanded || !isLong ? text : `${text.slice(0, 52)}...`}
+      </span>
+      {isLong && (
+        <span className="text-[10px] text-orange-400 ml-1 font-mono font-medium underline shrink-0">
+          {expanded ? 'Kapat' : 'Daha fazla'}
+        </span>
+      )}
+    </div>
+  );
+};
 
 interface InvoicesViewProps {
   selectedDate: string;
@@ -66,7 +252,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     dueDate: selectedDate,
     description: '',
     vatRate: 1,
-    items: [] as InvoiceItem[],
+    generalDiscountType: '%' as '%' | 'TL',
+    generalDiscountValue: '' as string | number,
+    items: [] as FormInvoiceItemRow[],
   });
 
   // Payment Form State
@@ -149,8 +337,9 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       const matchSup = inv.supplierName.toLowerCase().includes(q);
       const matchNo = inv.invoiceNo.toLowerCase().includes(q);
       const matchCat = inv.category.toLowerCase().includes(q);
+      const matchDesc = inv.description?.toLowerCase().includes(q);
       const matchItems = inv.items?.some((it) => it.productName.toLowerCase().includes(q));
-      if (!matchSup && !matchNo && !matchCat && !matchItems) return false;
+      if (!matchSup && !matchNo && !matchCat && !matchDesc && !matchItems) return false;
     }
 
     return true;
@@ -168,6 +357,8 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       dueDate: selectedDate,
       description: '',
       vatRate: 1,
+      generalDiscountType: '%',
+      generalDiscountValue: '',
       items: [
         {
           id: `item-${Date.now()}-1`,
@@ -176,6 +367,10 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           unit: 'kg',
           unitPrice: 0,
           vatRate: 1,
+          discountType: '%',
+          discountInput: '',
+          discountRate: undefined,
+          discountAmount: 0,
           total: 0,
           category: 'Sebze',
         },
@@ -188,6 +383,52 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   const handleOpenEditInvoice = (inv: Invoice) => {
     setEditingInvoice(inv);
     const fallbackPrice = inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount;
+
+    // Determine general discount initial state
+    let genType: '%' | 'TL' = '%';
+    let genVal: string | number = '';
+    if (inv.generalDiscountRate && inv.generalDiscountRate > 0) {
+      genType = '%';
+      genVal = inv.generalDiscountRate;
+    } else if (inv.generalDiscountAmount && inv.generalDiscountAmount > 0) {
+      genType = 'TL';
+      genVal = inv.generalDiscountAmount;
+    }
+
+    const items: FormInvoiceItemRow[] = inv.items.length > 0 ? inv.items.map((it) => {
+      let dType: '%' | 'TL' = '%';
+      let dVal: string | number = '';
+      if (it.discountRate !== undefined && it.discountRate > 0) {
+        dType = '%';
+        dVal = it.discountRate;
+      } else if (it.discountAmount !== undefined && it.discountAmount > 0) {
+        dType = 'TL';
+        dVal = it.discountAmount;
+      }
+      return {
+        ...it,
+        discountType: dType,
+        discountInput: dVal,
+        discountRate: it.discountRate,
+        discountAmount: it.discountAmount || 0,
+      };
+    }) : [
+      {
+        id: `item-${Date.now()}-1`,
+        productName: 'Genel Mal / Hizmet Alımı',
+        quantity: 1,
+        unit: 'adet',
+        unitPrice: fallbackPrice,
+        vatRate: inv.vatRate || 1,
+        discountType: '%' as const,
+        discountInput: '',
+        discountRate: undefined,
+        discountAmount: 0,
+        total: fallbackPrice,
+        category: 'Genel',
+      },
+    ];
+
     setInvoiceForm({
       date: inv.date,
       invoiceNo: inv.invoiceNo,
@@ -195,49 +436,35 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       taxNumber: inv.taxNumber || '',
       category: inv.category,
       dueDate: inv.dueDate,
-      description: inv.description,
+      description: inv.description || '',
       vatRate: inv.vatRate || 1,
-      items: inv.items.length > 0 ? [...inv.items] : [
-        {
-          id: `item-${Date.now()}-1`,
-          productName: 'Genel Mal / Hizmet Alımı',
-          quantity: 1,
-          unit: 'adet',
-          unitPrice: fallbackPrice,
-          vatRate: inv.vatRate || 1,
-          total: fallbackPrice,
-          category: 'Genel',
-        },
-      ],
+      generalDiscountType: genType,
+      generalDiscountValue: genVal,
+      items,
     });
     setIsInvoiceModalOpen(true);
   };
 
   // Line Item Handlers
-  const handleItemChange = (index: number, field: keyof InvoiceItem, val: any) => {
+  const handleItemChange = (index: number, field: string, val: any) => {
     const updated = [...invoiceForm.items];
     const current = { ...updated[index], [field]: val };
-
-    if (field === 'quantity' || field === 'unitPrice' || field === 'vatRate') {
-      const qty = field === 'quantity' ? parseNumberInput(val) : (current.quantity || 0);
-      const price = field === 'unitPrice' ? parseNumberInput(val) : (current.unitPrice || 0);
-      current.quantity = qty;
-      current.unitPrice = price;
-      current.total = Math.round((qty * price + Number.EPSILON) * 100) / 100;
-    }
-
     updated[index] = current;
     setInvoiceForm({ ...invoiceForm, items: updated });
   };
 
   const handleAddItemRow = () => {
-    const newItem: InvoiceItem = {
+    const newItem: FormInvoiceItemRow = {
       id: `item-${Date.now()}-${invoiceForm.items.length}`,
       productName: '',
       quantity: 1,
       unit: 'kg',
       unitPrice: 0,
       vatRate: invoiceForm.vatRate,
+      discountType: '%',
+      discountInput: '',
+      discountRate: undefined,
+      discountAmount: 0,
       total: 0,
       category: invoiceForm.category,
     };
@@ -249,7 +476,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setInvoiceForm({ ...invoiceForm, items: updated });
   };
 
-  // Save Invoice (netAmount = KDV Hariç toplam, vatAmount = KDV toplamı, totalAmount = KDV Dahil genel toplam)
+  // Save Invoice
   const handleSaveInvoice = (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceForm.supplierName.trim()) {
@@ -258,43 +485,43 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     }
 
     const round2 = (val: number) => Math.round((val + Number.EPSILON) * 100) / 100;
+    const breakdown = calculateInvoiceBreakdown(
+      invoiceForm.items,
+      invoiceForm.generalDiscountType,
+      invoiceForm.generalDiscountValue
+    );
 
-    let computedNet = 0;
-    let computedVat = 0;
+    if (breakdown.isDiscountExceeded) {
+      alert('İskonto, KDV hariç ara toplamdan fazla olamaz! Lütfen iskonto tutar veya oranını düzeltiniz.');
+      return;
+    }
 
-    const normalizedItems: InvoiceItem[] = invoiceForm.items.map((it) => {
-      const qty = Number(it.quantity) || 0;
-      const price = Number(it.unitPrice) || 0;
-      const rate = Number(it.vatRate) || 0;
-      const lineNet = round2(qty * price);
-      const lineVat = round2((lineNet * rate) / 100);
-
-      computedNet += lineNet;
-      computedVat += lineVat;
-
-      return {
-        ...it,
-        quantity: qty,
-        unitPrice: price,
-        vatRate: rate,
-        total: lineNet,
-      };
-    });
-
-    computedNet = round2(computedNet);
-    computedVat = round2(computedVat);
-    const computedTotal = round2(computedNet + computedVat);
-
-    if (computedTotal <= 0) {
+    if (breakdown.totalAmount <= 0) {
       alert('Lütfen en az bir geçerli ürün ve tutar giriniz.');
       return;
     }
+
+    const normalizedItems: InvoiceItem[] = invoiceForm.items.map((it, idx) => {
+      const calc = breakdown.items[idx];
+      return {
+        id: it.id,
+        productName: it.productName.trim(),
+        quantity: calc.qty,
+        unit: it.unit,
+        unitPrice: calc.price,
+        vatRate: calc.vatRate,
+        total: calc.postLineTotal, // İskonto sonrası KDV hariç kalem tutarı
+        category: it.category || 'Genel',
+        discountRate: calc.lineRate > 0 ? calc.lineRate : undefined,
+        discountAmount: calc.lineDiscount > 0 ? calc.lineDiscount : undefined,
+      };
+    });
 
     if (editingInvoice) {
       // Re-evaluate payment status against KDV dahil totalAmount
       const paidSum = round2(editingInvoice.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0));
       let newStatus: PaymentStatus = 'unpaid';
-      if (paidSum >= computedTotal && computedTotal > 0) newStatus = 'paid';
+      if (paidSum >= breakdown.totalAmount && breakdown.totalAmount > 0) newStatus = 'paid';
       else if (paidSum > 0) newStatus = 'partial';
       else if (invoiceForm.dueDate < selectedDate) newStatus = 'overdue';
 
@@ -307,9 +534,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         category: invoiceForm.category,
         dueDate: invoiceForm.dueDate,
         description: invoiceForm.description.trim(),
-        netAmount: computedNet,
-        totalAmount: computedTotal,
-        vatAmount: computedVat,
+        grossAmount: breakdown.grossAmount,
+        discountAmount: breakdown.totalDiscountAmount > 0 ? breakdown.totalDiscountAmount : undefined,
+        generalDiscountRate: breakdown.generalDiscountRate > 0 ? breakdown.generalDiscountRate : undefined,
+        generalDiscountAmount: breakdown.generalDiscountAmount > 0 ? breakdown.generalDiscountAmount : undefined,
+        netAmount: breakdown.netAmount,
+        totalAmount: breakdown.totalAmount,
+        vatAmount: breakdown.vatAmount,
         vatRate: invoiceForm.vatRate,
         items: normalizedItems,
         paymentStatus: newStatus,
@@ -323,9 +554,13 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         category: invoiceForm.category,
         dueDate: invoiceForm.dueDate,
         description: invoiceForm.description.trim(),
-        netAmount: computedNet,
-        totalAmount: computedTotal,
-        vatAmount: computedVat,
+        grossAmount: breakdown.grossAmount,
+        discountAmount: breakdown.totalDiscountAmount > 0 ? breakdown.totalDiscountAmount : undefined,
+        generalDiscountRate: breakdown.generalDiscountRate > 0 ? breakdown.generalDiscountRate : undefined,
+        generalDiscountAmount: breakdown.generalDiscountAmount > 0 ? breakdown.generalDiscountAmount : undefined,
+        netAmount: breakdown.netAmount,
+        totalAmount: breakdown.totalAmount,
+        vatAmount: breakdown.vatAmount,
         vatRate: invoiceForm.vatRate,
         paymentStatus: invoiceForm.dueDate < selectedDate ? 'overdue' : 'unpaid',
         items: normalizedItems,
@@ -551,13 +786,19 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                       <Building2 className="w-5 h-5" />
                     </div>
                     <div>
-                      <div className="flex items-center space-x-2">
+                      <div className="flex items-center flex-wrap gap-2">
                         <h3 className="font-bold text-white text-base">
                           {inv.supplierName}
                         </h3>
                         <span className="px-2 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-gray-300 text-[10px] font-mono font-semibold uppercase">
                           {inv.category}
                         </span>
+                        {inv.discountAmount !== undefined && inv.discountAmount > 0 && (
+                          <span className="px-2 py-0.5 rounded bg-amber-500/20 border border-amber-500/30 text-amber-300 text-[10px] font-mono font-semibold flex items-center gap-1">
+                            <Tag className="w-3 h-3 text-amber-400" />
+                            <span>İskonto: -{formatCurrency(inv.discountAmount)}</span>
+                          </span>
+                        )}
                         {isOverdue && (
                           <span className="px-2 py-0.5 rounded bg-rose-500/20 text-rose-400 border border-rose-500/30 text-[10px] font-mono font-bold">
                             VADESİ GEÇTİ
@@ -583,6 +824,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           </>
                         )}
                       </div>
+
+                      {inv.description && (
+                        <div className="mt-2">
+                          <InvoiceDescriptionSnippet text={inv.description} />
+                        </div>
+                      )}
                     </div>
                   </div>
 
@@ -593,8 +840,20 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                         {formatCurrency(inv.totalAmount)}
                         <span className="text-[11px] font-normal text-gray-400 ml-1.5">(KDV Dahil)</span>
                       </div>
-                      <div className="flex items-center lg:justify-end gap-2 text-[11px] text-gray-400 mt-0.5">
-                        <span>KDV Hariç: <strong className="text-gray-300 font-semibold">{formatCurrency(inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount)}</strong></span>
+                      <div className="flex flex-wrap items-center lg:justify-end gap-2 text-[11px] text-gray-400 mt-0.5">
+                        {inv.grossAmount !== undefined && (
+                          <>
+                            <span>Ara Toplam: <strong className="text-gray-300 font-semibold">{formatCurrency(inv.grossAmount)}</strong></span>
+                            <span>•</span>
+                          </>
+                        )}
+                        {inv.discountAmount !== undefined && inv.discountAmount > 0 && (
+                          <>
+                            <span className="text-amber-400">İskonto: <strong className="font-semibold">-{formatCurrency(inv.discountAmount)}</strong></span>
+                            <span>•</span>
+                          </>
+                        )}
+                        <span>KDV Hariç Net: <strong className="text-gray-300 font-semibold">{formatCurrency(inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount)}</strong></span>
                         <span>•</span>
                         <span>KDV: <strong className="text-orange-400 font-semibold">+{formatCurrency(inv.vatAmount || 0)}</strong></span>
                       </div>
@@ -649,6 +908,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 {/* Expanded Itemized Breakdown & Payment History */}
                 {isExpanded && (
                   <div className="bg-[#0d1117] p-5 border-t border-[#30363d] space-y-4 text-xs font-mono">
+                    {/* Invoice Note if present */}
+                    {inv.description && (
+                      <div className="p-3 rounded-lg bg-[#161b22] border border-[#30363d] flex items-start space-x-2 text-xs">
+                        <FileText className="w-4 h-4 text-orange-400 shrink-0 mt-0.5" />
+                        <div>
+                          <span className="font-semibold text-gray-300">Fatura Açıklaması / Notu:</span>
+                          <p className="text-gray-200 mt-0.5 font-sans whitespace-pre-wrap">{inv.description}</p>
+                        </div>
+                      </div>
+                    )}
+
                     {/* Products Table */}
                     <div>
                       <h4 className="font-bold text-white mb-2 flex items-center space-x-1.5">
@@ -664,6 +934,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                               <th className="py-2 px-3">Kategori</th>
                               <th className="py-2 px-3 text-right">Miktar</th>
                               <th className="py-2 px-3 text-right">Birim Fiyat</th>
+                              <th className="py-2 px-3 text-center">İskonto</th>
                               <th className="py-2 px-3 text-center">KDV (%)</th>
                               <th className="py-2 px-3 text-right">KDV Hariç Tutar</th>
                               <th className="py-2 px-3 text-right">KDV Tutarı</th>
@@ -672,9 +943,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           </thead>
                           <tbody className="divide-y divide-[#21262d]">
                             {inv.items.map((it) => {
-                              const lineNet = Math.round(((Number(it.quantity) || 0) * (Number(it.unitPrice) || 0) + Number.EPSILON) * 100) / 100;
-                              const lineVat = Math.round(((lineNet * (Number(it.vatRate) || 0)) / 100 + Number.EPSILON) * 100) / 100;
+                              const qty = Number(it.quantity) || 0;
+                              const price = Number(it.unitPrice) || 0;
+                              const rate = Number(it.vatRate) || 0;
+                              const lineGross = Math.round((qty * price + Number.EPSILON) * 100) / 100;
+                              const lineNet = it.total !== undefined ? Number(it.total) : lineGross;
+                              const lineVat = Math.round(((lineNet * rate) / 100 + Number.EPSILON) * 100) / 100;
                               const lineTotalWithVat = Math.round((lineNet + lineVat + Number.EPSILON) * 100) / 100;
+                              const hasDiscount = it.discountAmount !== undefined && it.discountAmount > 0;
+
                               return (
                                 <tr key={it.id} className="hover:bg-[#21262d] transition-colors">
                                   <td className="py-2 px-3 font-semibold text-gray-200 font-sans">
@@ -686,6 +963,15 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                                   </td>
                                   <td className="py-2 px-3 text-right text-gray-300">
                                     {formatCurrency(it.unitPrice)}
+                                  </td>
+                                  <td className="py-2 px-3 text-center">
+                                    {hasDiscount ? (
+                                      <span className="text-amber-400 font-semibold">
+                                        {it.discountRate ? `-%${it.discountRate}` : ''} (-{formatCurrency(it.discountAmount!)})
+                                      </span>
+                                    ) : (
+                                      <span className="text-gray-500">-</span>
+                                    )}
                                   </td>
                                   <td className="py-2 px-3 text-center text-gray-400">%{it.vatRate}</td>
                                   <td className="py-2 px-3 text-right text-gray-300">
@@ -703,9 +989,17 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                           </tbody>
                           <tfoot className="bg-[#0d1117] border-t border-[#30363d] font-bold">
                             <tr>
-                              <td colSpan={5} className="py-2.5 px-3 text-right text-gray-400">
+                              <td colSpan={4} className="py-2.5 px-3 text-right text-gray-400">
                                 Toplamlar:
                               </td>
+                              <td className="py-2.5 px-3 text-center text-amber-400">
+                                {inv.discountAmount !== undefined && inv.discountAmount > 0 ? (
+                                  <span>-{formatCurrency(inv.discountAmount)}</span>
+                                ) : (
+                                  <span className="text-gray-500">-</span>
+                                )}
+                              </td>
+                              <td className="py-2.5 px-3 text-center text-gray-500">-</td>
                               <td className="py-2.5 px-3 text-right text-gray-200">
                                 {formatCurrency(inv.netAmount !== undefined ? inv.netAmount : inv.totalAmount)}
                               </td>
@@ -922,202 +1216,298 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   </button>
                 </div>
 
-                <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
-                  {invoiceForm.items.map((it, idx) => (
-                    <div
-                      key={it.id || idx}
-                      className="p-2.5 rounded-lg bg-[#0d1117] border border-[#30363d] flex flex-wrap sm:flex-nowrap items-center gap-2"
-                    >
-                      <input
-                        type="text"
-                        required
-                        value={it.productName}
-                        onChange={(e) => handleItemChange(idx, 'productName', e.target.value)}
-                        placeholder="Ürün adı (Örn: Domates, Kıyma)"
-                        className="bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 flex-2 min-w-36 text-xs text-white focus:border-orange-500 focus:outline-none font-sans"
-                      />
+                {(() => {
+                  const formBreakdown = calculateInvoiceBreakdown(
+                    invoiceForm.items,
+                    invoiceForm.generalDiscountType,
+                    invoiceForm.generalDiscountValue
+                  );
 
-                      <div className="flex items-center space-x-1 w-28">
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          value={it.quantity || ''}
-                          onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
-                          placeholder="Miktar"
-                          className="w-16 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-right font-medium text-white focus:border-orange-500 focus:outline-none"
-                        />
-                        <select
-                          value={it.unit}
-                          onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
-                          className="bg-[#161b22] border border-[#30363d] rounded-lg px-1.5 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
-                        >
-                          <option value="kg">kg</option>
-                          <option value="adet">adet</option>
-                          <option value="koli">koli</option>
-                          <option value="lt">lt</option>
-                          <option value="demet">demet</option>
-                          <option value="teneke">teneke</option>
-                          <option value="çuval">çuval</option>
-                        </select>
-                      </div>
+                  return (
+                    <>
+                      <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                        {invoiceForm.items.map((it, idx) => {
+                          const itemCalc = formBreakdown.items[idx];
+                          return (
+                            <div
+                              key={it.id || idx}
+                              className="p-2.5 rounded-lg bg-[#0d1117] border border-[#30363d] flex flex-wrap sm:flex-nowrap items-center gap-2"
+                            >
+                              <input
+                                type="text"
+                                required
+                                value={it.productName}
+                                onChange={(e) => handleItemChange(idx, 'productName', e.target.value)}
+                                placeholder="Ürün adı (Örn: Domates, Kıyma)"
+                                className="bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 flex-2 min-w-36 text-xs text-white focus:border-orange-500 focus:outline-none font-sans"
+                              />
 
-                      <div className="relative w-28">
-                        <input
-                          type="number"
-                          step="0.01"
-                          required
-                          value={it.unitPrice || ''}
-                          onChange={(e) => handleItemChange(idx, 'unitPrice', e.target.value)}
-                          placeholder="Birim Fiyat"
-                          className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-right pr-5 font-medium text-white focus:border-orange-500 focus:outline-none"
-                        />
-                        <span className="absolute right-1.5 top-1.5 text-[10px] text-gray-500">₺</span>
-                      </div>
+                              <div className="flex items-center space-x-1 w-28">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  required
+                                  value={it.quantity ?? ''}
+                                  onChange={(e) => handleItemChange(idx, 'quantity', e.target.value)}
+                                  placeholder="Miktar"
+                                  className="w-16 bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-right font-medium text-white focus:border-orange-500 focus:outline-none"
+                                />
+                                <select
+                                  value={it.unit}
+                                  onChange={(e) => handleItemChange(idx, 'unit', e.target.value)}
+                                  className="bg-[#161b22] border border-[#30363d] rounded-lg px-1.5 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
+                                >
+                                  <option value="kg">kg</option>
+                                  <option value="adet">adet</option>
+                                  <option value="koli">koli</option>
+                                  <option value="lt">lt</option>
+                                  <option value="demet">demet</option>
+                                  <option value="teneke">teneke</option>
+                                  <option value="çuval">çuval</option>
+                                </select>
+                              </div>
 
-                      <div className="w-20">
-                        <select
-                          value={it.vatRate}
-                          onChange={(e) => handleItemChange(idx, 'vatRate', Number(e.target.value))}
-                          className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-1.5 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
-                        >
-                          <option value={1}>%1 KDV</option>
-                          <option value={10}>%10 KDV</option>
-                          <option value={20}>%20 KDV</option>
-                        </select>
-                      </div>
+                              <div className="relative w-28">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  required
+                                  value={it.unitPrice ?? ''}
+                                  onChange={(e) => handleItemChange(idx, 'unitPrice', e.target.value)}
+                                  placeholder="Birim Fiyat"
+                                  className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-2 py-1.5 text-xs text-right pr-5 font-medium text-white focus:border-orange-500 focus:outline-none"
+                                />
+                                <span className="absolute right-1.5 top-1.5 text-[10px] text-gray-500">₺</span>
+                              </div>
 
-                      {(() => {
-                        const qty = Number(it.quantity) || 0;
-                        const price = Number(it.unitPrice) || 0;
-                        const rate = Number(it.vatRate) || 0;
-                        const lineNet = Math.round((qty * price + Number.EPSILON) * 100) / 100;
-                        const lineVat = Math.round(((lineNet * rate) / 100 + Number.EPSILON) * 100) / 100;
-                        const lineWithVat = Math.round((lineNet + lineVat + Number.EPSILON) * 100) / 100;
-                        return (
-                          <div className="w-28 text-right flex flex-col justify-center">
-                            <div className="font-bold text-white text-xs">
-                              {formatCurrency(lineNet)}
+                              {/* Kalem İskontosu */}
+                              <div className="flex items-center space-x-1 w-28">
+                                <input
+                                  type="number"
+                                  step="0.01"
+                                  value={it.discountInput ?? ''}
+                                  onChange={(e) => handleItemChange(idx, 'discountInput', e.target.value)}
+                                  placeholder="İskonto"
+                                  className="w-16 bg-[#161b22] border border-[#30363d] rounded-lg px-1.5 py-1.5 text-xs text-right font-medium text-amber-300 focus:border-orange-500 focus:outline-none placeholder-gray-600"
+                                  title="Kalem iskontosu (% veya TL)"
+                                />
+                                <select
+                                  value={it.discountType || '%'}
+                                  onChange={(e) => handleItemChange(idx, 'discountType', e.target.value as '%' | 'TL')}
+                                  className="bg-[#161b22] border border-[#30363d] rounded-lg px-1 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none cursor-pointer"
+                                  title="İskonto Tipi"
+                                >
+                                  <option value="%">%</option>
+                                  <option value="TL">₺</option>
+                                </select>
+                              </div>
+
+                              <div className="w-20">
+                                <select
+                                  value={it.vatRate}
+                                  onChange={(e) => handleItemChange(idx, 'vatRate', Number(e.target.value))}
+                                  className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-1.5 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none"
+                                >
+                                  <option value={1}>%1 KDV</option>
+                                  <option value={10}>%10 KDV</option>
+                                  <option value={20}>%20 KDV</option>
+                                </select>
+                              </div>
+
+                              <div className="w-28 text-right flex flex-col justify-center">
+                                <div className="font-bold text-white text-xs">
+                                  {formatCurrency(itemCalc ? itemCalc.postLineTotal : 0)}
+                                </div>
+                                {itemCalc && itemCalc.lineDiscount > 0 ? (
+                                  <div className="text-[10px] text-amber-400 whitespace-nowrap">
+                                    İsk: -{formatCurrency(itemCalc.lineDiscount)}
+                                  </div>
+                                ) : (
+                                  <div className="text-[10px] text-gray-400 whitespace-nowrap">
+                                    KDV Dahil: <span className="text-orange-400 font-semibold">{formatCurrency(itemCalc ? itemCalc.lineTotalWithVat : 0)}</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {invoiceForm.items.length > 1 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveItemRow(idx)}
+                                  className="text-gray-500 hover:text-rose-400 p-1 cursor-pointer"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              )}
                             </div>
-                            <div className="text-[10px] text-gray-400 whitespace-nowrap">
-                              KDV Dahil: <span className="text-orange-400 font-semibold">{formatCurrency(lineWithVat)}</span>
+                          );
+                        })}
+                      </div>
+
+                      {/* Genel İskonto & Açıklama / Not Alanları */}
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+                        {/* Genel İskonto */}
+                        <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d] flex flex-col justify-between">
+                          <div>
+                            <label className="block font-semibold text-gray-300 text-xs mb-1 flex items-center justify-between">
+                              <span className="flex items-center space-x-1">
+                                <Tag className="w-3.5 h-3.5 text-amber-400" />
+                                <span>Genel Fatura İskontosu</span>
+                              </span>
+                              <span className="text-[10px] text-gray-500 font-normal">Opsiyonel</span>
+                            </label>
+                            <p className="text-[10px] text-gray-400 leading-tight mb-2">
+                              Tüm kalemlere orantılı dağıtılır ve her KDV oranı için iskontolu tutar üzerinden hesaplanır.
+                            </p>
+                          </div>
+                          <div className="flex items-center space-x-2">
+                            <input
+                              type="number"
+                              step="0.01"
+                              value={invoiceForm.generalDiscountValue}
+                              onChange={(e) => setInvoiceForm({ ...invoiceForm, generalDiscountValue: e.target.value })}
+                              placeholder="0.00"
+                              className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs text-amber-300 font-semibold focus:border-orange-500 focus:outline-none"
+                            />
+                            <select
+                              value={invoiceForm.generalDiscountType}
+                              onChange={(e) => setInvoiceForm({ ...invoiceForm, generalDiscountType: e.target.value as '%' | 'TL' })}
+                              className="bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs text-gray-200 focus:border-orange-500 focus:outline-none cursor-pointer"
+                            >
+                              <option value="%">% (Yüzde)</option>
+                              <option value="TL">₺ (Tutar)</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        {/* Açıklama / Not (Çok satırlı) */}
+                        <div className="p-3 rounded-lg bg-[#0d1117] border border-[#30363d] flex flex-col justify-between">
+                          <label className="block font-semibold text-gray-300 text-xs mb-1 flex items-center justify-between">
+                            <span className="flex items-center space-x-1">
+                              <FileText className="w-3.5 h-3.5 text-orange-400" />
+                              <span>Fatura Açıklaması / Not</span>
+                            </span>
+                            <span className="text-[10px] text-gray-500 font-normal">Opsiyonel</span>
+                          </label>
+                          <textarea
+                            rows={2}
+                            value={invoiceForm.description}
+                            onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                            placeholder="Fatura açıklaması, irsaliye no, sipariş notu..."
+                            className="w-full bg-[#161b22] border border-[#30363d] rounded-lg px-2.5 py-1.5 text-xs text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none resize-none font-sans"
+                          />
+                        </div>
+                      </div>
+
+                      {/* İskonto Fazlaysa Kırmızı Uyarı */}
+                      {formBreakdown.isDiscountExceeded && (
+                        <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/30 text-rose-400 text-xs font-semibold flex items-center space-x-2">
+                          <AlertCircle className="w-4 h-4 shrink-0" />
+                          <span>
+                            ⚠️ Toplam iskonto tutarı ({formatCurrency(formBreakdown.totalDiscountAmount)}), fatura ara toplamından ({formatCurrency(formBreakdown.grossAmount)}) fazla olamaz!
+                          </span>
+                        </div>
+                      )}
+
+                      {/* Total Calculation summary box (5 Sıralı Satır) */}
+                      <div className="p-4 rounded-xl bg-[#0d1117] text-white border border-[#30363d] space-y-2.5">
+                        {/* 1) Ara Toplam (İskonto Öncesi) */}
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-medium text-gray-400">
+                            Ara Toplam (İskonto Öncesi KDV Hariç):
+                          </span>
+                          <span className="font-semibold text-gray-200 text-sm">
+                            {formatCurrency(formBreakdown.grossAmount)}
+                          </span>
+                        </div>
+
+                        {/* 2) (-) İskonto (0 ise gizle) */}
+                        {formBreakdown.totalDiscountAmount > 0 && (
+                          <div className="flex items-center justify-between text-xs text-amber-400 border-t border-[#21262d] pt-2">
+                            <div className="flex items-center space-x-1.5">
+                              <span className="font-medium">(-) Toplam İskonto:</span>
+                              <span className="text-[10px] text-gray-400 font-normal">
+                                (Kalem: {formatCurrency(formBreakdown.lineDiscountTotal)} | Genel: {formatCurrency(formBreakdown.generalDiscountAmount)})
+                              </span>
+                            </div>
+                            <span className="font-bold text-sm">
+                              -{formatCurrency(formBreakdown.totalDiscountAmount)}
+                            </span>
+                          </div>
+                        )}
+
+                        {/* 3) KDV Hariç Net Tutar */}
+                        <div className="flex items-center justify-between text-xs border-t border-[#21262d] pt-2">
+                          <span className="font-medium text-gray-400">
+                            KDV Hariç Net Tutar ({invoiceForm.items.length} Kalem):
+                          </span>
+                          <span className="font-semibold text-gray-200 text-sm">
+                            {formatCurrency(formBreakdown.netAmount)}
+                          </span>
+                        </div>
+
+                        {/* 4) KDV Tutarı (Oran Dökümüyle) */}
+                        <div className="border-t border-[#21262d] pt-2">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="font-medium text-gray-400">KDV Tutarı Toplamı:</span>
+                            <span className="font-bold text-orange-400 text-sm">
+                              +{formatCurrency(formBreakdown.vatAmount)}
+                            </span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[11px] text-gray-400 mt-1 pl-0.5">
+                            <span className="text-gray-500 font-semibold">Oran Dökümü:</span>
+                            <span className={formBreakdown.vatBreakdown[1]?.vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
+                              %1 KDV: <strong className={formBreakdown.vatBreakdown[1]?.vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(formBreakdown.vatBreakdown[1]?.vat || 0)}</strong>
+                            </span>
+                            <span className="text-gray-600">•</span>
+                            <span className={formBreakdown.vatBreakdown[10]?.vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
+                              %10 KDV: <strong className={formBreakdown.vatBreakdown[10]?.vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(formBreakdown.vatBreakdown[10]?.vat || 0)}</strong>
+                            </span>
+                            <span className="text-gray-600">•</span>
+                            <span className={formBreakdown.vatBreakdown[20]?.vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
+                              %20 KDV: <strong className={formBreakdown.vatBreakdown[20]?.vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(formBreakdown.vatBreakdown[20]?.vat || 0)}</strong>
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* 5) KDV Dahil Genel Toplam */}
+                        <div className="border-t border-[#30363d] pt-2.5 flex items-center justify-between">
+                          <div>
+                            <div className="text-xs font-bold text-white uppercase tracking-wider">
+                              KDV Dahil Genel Toplam
+                            </div>
+                            <div className="text-[10px] text-gray-400">
+                              Ödeme, kalan borç ve muhasebe takibi bu tutar üzerinden yapılır
                             </div>
                           </div>
-                        );
-                      })()}
+                          <div className="text-xl sm:text-2xl font-extrabold text-orange-400 tracking-tight">
+                            {formatCurrency(formBreakdown.totalAmount)}
+                          </div>
+                        </div>
+                      </div>
 
-                      {invoiceForm.items.length > 1 && (
+                      <div className="flex items-center justify-end space-x-2 pt-3 border-t border-[#30363d]">
                         <button
                           type="button"
-                          onClick={() => handleRemoveItemRow(idx)}
-                          className="text-gray-500 hover:text-rose-400 p-1 cursor-pointer"
+                          onClick={() => setIsInvoiceModalOpen(false)}
+                          className="px-4 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 font-semibold cursor-pointer border border-[#30363d]"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          İptal
                         </button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Total Calculation summary box (3 Satır) */}
-              {(() => {
-                let computedNet = 0;
-                const vatBreakdown: Record<number, { base: number; vat: number }> = {
-                  1: { base: 0, vat: 0 },
-                  10: { base: 0, vat: 0 },
-                  20: { base: 0, vat: 0 },
-                };
-
-                invoiceForm.items.forEach((it) => {
-                  const qty = Number(it.quantity) || 0;
-                  const price = Number(it.unitPrice) || 0;
-                  const rate = Number(it.vatRate) || 0;
-                  const lineNet = Math.round((qty * price + Number.EPSILON) * 100) / 100;
-                  const lineVat = Math.round(((lineNet * rate) / 100 + Number.EPSILON) * 100) / 100;
-
-                  computedNet += lineNet;
-                  if (!vatBreakdown[rate]) {
-                    vatBreakdown[rate] = { base: 0, vat: 0 };
-                  }
-                  vatBreakdown[rate].base += lineNet;
-                  vatBreakdown[rate].vat += lineVat;
-                });
-
-                computedNet = Math.round((computedNet + Number.EPSILON) * 100) / 100;
-                const computedVat = Math.round(
-                  (Object.values(vatBreakdown).reduce((s, v) => s + v.vat, 0) + Number.EPSILON) * 100
-                ) / 100;
-                const computedTotal = Math.round((computedNet + computedVat + Number.EPSILON) * 100) / 100;
-
-                return (
-                  <div className="p-4 rounded-xl bg-[#0d1117] text-white border border-[#30363d] space-y-2.5">
-                    {/* Satır 1: KDV Hariç Tutar */}
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-medium text-gray-400">
-                        KDV Hariç Tutar ({invoiceForm.items.length} Kalem):
-                      </span>
-                      <span className="font-semibold text-gray-200 text-sm">
-                        {formatCurrency(computedNet)}
-                      </span>
-                    </div>
-
-                    {/* Satır 2: KDV Tutarı & Oran Dökümü */}
-                    <div className="border-t border-[#21262d] pt-2">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-medium text-gray-400">KDV Tutarı Toplamı:</span>
-                        <span className="font-bold text-orange-400 text-sm">
-                          +{formatCurrency(computedVat)}
-                        </span>
+                        <button
+                          type="submit"
+                          disabled={formBreakdown.isDiscountExceeded}
+                          className={`px-5 py-2 rounded-lg font-semibold shadow-md ${
+                            formBreakdown.isDiscountExceeded
+                              ? 'bg-gray-700 text-gray-500 cursor-not-allowed opacity-60'
+                              : 'bg-orange-600 hover:bg-orange-500 text-white cursor-pointer'
+                          }`}
+                        >
+                          {editingInvoice ? 'Faturayı Güncelle' : 'Faturayı Kaydet'}
+                        </button>
                       </div>
-                      <div className="flex flex-wrap items-center gap-2 sm:gap-3 text-[11px] text-gray-400 mt-1 pl-0.5">
-                        <span className="text-gray-500 font-semibold">Oran Dökümü:</span>
-                        <span className={vatBreakdown[1].vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
-                          %1 KDV: <strong className={vatBreakdown[1].vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(vatBreakdown[1].vat)}</strong>
-                        </span>
-                        <span className="text-gray-600">•</span>
-                        <span className={vatBreakdown[10].vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
-                          %10 KDV: <strong className={vatBreakdown[10].vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(vatBreakdown[10].vat)}</strong>
-                        </span>
-                        <span className="text-gray-600">•</span>
-                        <span className={vatBreakdown[20].vat > 0 ? 'text-gray-200 font-medium' : 'text-gray-500'}>
-                          %20 KDV: <strong className={vatBreakdown[20].vat > 0 ? 'text-orange-400' : 'text-gray-400'}>{formatCurrency(vatBreakdown[20].vat)}</strong>
-                        </span>
-                      </div>
-                    </div>
-
-                    {/* Satır 3: KDV Dahil Genel Toplam (Büyük ve vurgulu) */}
-                    <div className="border-t border-[#30363d] pt-2.5 flex items-center justify-between">
-                      <div>
-                        <div className="text-xs font-bold text-white uppercase tracking-wider">
-                          KDV Dahil Genel Toplam
-                        </div>
-                        <div className="text-[10px] text-gray-400">
-                          Ödeme, kalan borç ve muhasebe takibi bu tutar üzerinden yapılır
-                        </div>
-                      </div>
-                      <div className="text-xl sm:text-2xl font-extrabold text-orange-400 tracking-tight">
-                        {formatCurrency(computedTotal)}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })()}
-
-              <div className="flex items-center justify-end space-x-2 pt-3 border-t border-[#30363d]">
-                <button
-                  type="button"
-                  onClick={() => setIsInvoiceModalOpen(false)}
-                  className="px-4 py-2 rounded-lg bg-[#21262d] hover:bg-[#30363d] text-gray-300 font-semibold cursor-pointer border border-[#30363d]"
-                >
-                  İptal
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-lg bg-orange-600 hover:bg-orange-500 text-white font-semibold shadow-md cursor-pointer"
-                >
-                  {editingInvoice ? 'Faturayı Güncelle' : 'Faturayı Kaydet'}
-                </button>
+                    </>
+                  );
+                })()}
               </div>
             </form>
           </div>

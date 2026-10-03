@@ -25,6 +25,7 @@ import {
   getDailyInvoiceCashPayments,
   isCashExpenseMethod,
   isCreditCardExpenseMethod,
+  getPosTotal,
 } from '../utils/calculations';
 
 interface VegaImportModalProps {
@@ -180,18 +181,23 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
   };
 
   // Compute live preview of calculations with the newly parsed data
+  const posTotal = getPosTotal(currentEntry.posReports);
+  const rawReportCC = parsedData?.creditCardSales ?? (currentEntry.vegaReport?.hasVegaCardSales !== false ? (currentEntry.vegaReport?.creditCardSales ?? 0) : 0);
+  const efektifKart = posTotal > 0 ? posTotal : rawReportCC;
+  const previewCCSales = efektifKart;
+
   const previewTotalSales = parsedData?.totalSales ?? currentEntry.vegaReport?.totalSales ?? 0;
-  const previewCCSales = parsedData?.creditCardSales ?? currentEntry.vegaReport?.creditCardSales ?? 0;
   const previewOtherSales = parsedData?.otherSales ?? currentEntry.vegaReport?.otherSales ?? 0;
   const previewGrossSales = parsedData?.grossProductSales ?? (parsedGroups.length > 0 ? parsedGroups.reduce((a, b) => a + b.amount, 0) : previewTotalSales);
   const previewDiscount = parsedData?.discountTotal ?? parsedData?.discountAmount ?? currentEntry.vegaReport?.discountTotal ?? currentEntry.vegaReport?.discountAmount ?? 0;
   const previewOpenAccount = parsedData?.openAccountTotal ?? currentEntry.vegaReport?.openAccountTotal ?? 0;
   
-  // Computed cash sales: if cashSales is not explicitly found, infer total - CC
+  // 1) NAKİT SATIŞ HESABI: kart satışı olarak efektifKart kullan
+  const derivedCashSales = Math.max(0, previewTotalSales - efektifKart - previewOtherSales);
   const previewCashSales =
     parsedData?.cashSales !== undefined && parsedData.cashSales > 0
       ? parsedData.cashSales
-      : Math.max(0, previewTotalSales - previewCCSales - previewOtherSales);
+      : derivedCashSales;
 
   const dailyCashExpenses = getDailyCashExpenses(expenses, currentEntry.date);
   const dailyCreditCardExpenses = getDailyCreditCardExpenses(expenses, currentEntry.date);
@@ -206,10 +212,15 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
   const handleApply = (autoSetActualCash: boolean = true) => {
     if (!parsedData && parsedGroups.length === 0) return;
 
+    const reportCardSales = parsedData?.creditCardSales ?? 0;
+    const finalEfektifKart = posTotal > 0 ? posTotal : reportCardSales;
+    const finalDerivedCash = Math.max(0, previewTotalSales - finalEfektifKart - previewOtherSales);
     const finalCashSales =
       parsedData?.cashSales !== undefined && parsedData.cashSales > 0
         ? parsedData.cashSales
-        : Math.max(0, previewTotalSales - previewCCSales - previewOtherSales);
+        : finalDerivedCash;
+
+    const isGroupReportWithoutCardSales = reportCardSales <= 0;
 
     const updatedVega = {
       ...currentEntry.vegaReport,
@@ -220,16 +231,36 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
       openAccountTotal: previewOpenAccount,
       totalSales: previewTotalSales,
       cashSales: finalCashSales,
-      creditCardSales: previewCCSales,
+      creditCardSales: finalEfektifKart,
       otherSales: previewOtherSales,
+      hasVegaCardSales: !isGroupReportWithoutCardSales,
+      cardSalesFromPos: isGroupReportWithoutCardSales && posTotal > 0,
     };
+
+    // 2) FİİLİ SAYILAN KASA: içe aktarma, kullanıcının elle girdiği actualCashInHand değerinin ÜSTÜNE YAZMASIN.
+    // - currentEntry.actualCashInHand > 0 ise aynen koru.
+    // - 0 ise: openingCash + cashSales - totalCashOutflow hesapla,
+    //   sonuç 0 veya daha büyükse yaz; negatifse 0 bırak.
+    // VegaImportModal'daki "autoSetActualCash" davranışı da aynı kurala uysun.
+    const currentActualCash = Number(currentEntry.actualCashInHand) || 0;
+    let targetActualCash: number;
+
+    if (!autoSetActualCash) {
+      targetActualCash = currentActualCash;
+    } else {
+      if (currentActualCash > 0) {
+        targetActualCash = currentActualCash;
+      } else {
+        const remaining = openingCash + finalCashSales - totalCashOutflow;
+        targetActualCash = remaining >= 0 ? remaining : 0;
+      }
+    }
 
     const finalEntry: DailyEntry = {
       ...currentEntry,
       vegaReport: updatedVega,
       vegaGroups: parsedGroups.length > 0 ? parsedGroups : currentEntry.vegaGroups,
-      // If user wants, automatically set actual cash to the remaining calculated cash
-      actualCashInHand: autoSetActualCash ? calculatedRemainingCash : currentEntry.actualCashInHand,
+      actualCashInHand: targetActualCash,
       updatedAt: new Date().toISOString(),
     };
 

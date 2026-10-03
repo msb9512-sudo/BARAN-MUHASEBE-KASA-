@@ -135,6 +135,8 @@ export interface VegaReportData {
   tableCount?: number; // Masa / Adisyon Sayısı
   guestCount?: number; // Kuver / Kişi Sayısı
   notes?: string;
+  hasVegaCardSales?: boolean;
+  cardSalesFromPos?: boolean;
 }
 
 export interface CashWithdrawalItem {
@@ -233,9 +235,11 @@ export interface InvoiceItem {
   unit: string; // kg, adet, lt, koli, demet, teneke, kasa
   unitPrice: number;
   vatRate: number; // 1, 10, 20
-  total: number;
+  total: number; // İskonto sonrası KDV hariç kalem tutarı
   category: string; // Sebze/Meyve, Et/Tavuk, Süt/Peynir, Bakliyat, İçecek, Temizlik, Ambalaj, vb.
   usedQuantity?: number; // Tüketim
+  discountRate?: number; // Kalem iskonto yüzdesi (%)
+  discountAmount?: number; // Kalem iskonto tutarı (TL, KDV hariç)
 }
 
 export interface InvoicePayment {
@@ -256,7 +260,11 @@ export interface Invoice {
   invoiceNo: string;
   supplierName: string;
   taxNumber?: string;
-  netAmount?: number; // KDV Hariç Tutar
+  grossAmount?: number; // İskonto öncesi KDV hariç ara toplam
+  discountAmount?: number; // Toplam iskonto TL, KDV hariç (kalem + genel iskonto)
+  generalDiscountRate?: number; // Genel iskonto yüzdesi (%)
+  generalDiscountAmount?: number; // Genel iskonto tutarı (TL, KDV hariç)
+  netAmount?: number; // KDV Hariç Tutar (İskontolu)
   totalAmount: number; // KDV Dahil Genel Toplam
   vatAmount: number;
   vatRate: number; // Karışık veya genel oran
