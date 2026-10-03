@@ -22,10 +22,10 @@ import {
   History,
   RotateCcw,
 } from 'lucide-react';
-import { MasterSafeState, SafeTransaction, BanknoteCounts, TabType, DailyEntry, CashExpense, Invoice, CashWithdrawalItem } from '../types';
+import { MasterSafeState, SafeTransaction, BanknoteCounts, TabType, DailyEntry, CashExpense, Invoice, CashWithdrawalItem, FinancialAccount, AccountTransaction } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { calculateBanknoteTotal, calculateTotalBanknoteCount, DEFAULT_BANKNOTES } from '../utils/storage';
-import { calculateDailyRegister } from '../utils/calculations';
+import { calculateDailyRegister, getAnaKasaBalanceBeforeDate } from '../utils/calculations';
 import { BanknoteCountModal, BanknoteModalSubmitData, DENOMINATIONS } from './BanknoteCountModal';
 import { CashierStepFooter } from './CashierStepFooter';
 import { SmartMoneyInput } from './SmartMoneyInput';
@@ -39,6 +39,11 @@ interface MasterSafeVaultViewProps {
   onUpdateEntry?: (updated: DailyEntry) => void;
   expenses?: CashExpense[];
   invoices?: Invoice[];
+  accounts?: FinancialAccount[];
+  accountTransactions?: AccountTransaction[];
+  allEntries?: Record<string, DailyEntry> | DailyEntry[];
+  onUpdateAccount?: (account: FinancialAccount) => void;
+  onAddTransaction?: (tx: Omit<AccountTransaction, 'id' | 'createdAt'>) => void;
   onTransferToMasterSafe?: (transferData: {
     date: string;
     amount: number;
@@ -57,6 +62,9 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
   onUpdateEntry,
   expenses,
   invoices,
+  accounts = [],
+  accountTransactions = [],
+  allEntries = [],
   onTransferToMasterSafe,
 }) => {
   const [modalMode, setModalMode] = useState<'deposit' | 'withdrawal' | 'audit_count' | null>(null);
@@ -65,12 +73,21 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
   const [typeFilter, setTypeFilter] = useState<'all' | 'deposit' | 'withdrawal'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  const reg = currentEntry ? calculateDailyRegister(currentEntry, expenses || [], invoices || []) : null;
+  const mainAccount = accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+  const reg = currentEntry
+    ? calculateDailyRegister(currentEntry, expenses || [], invoices || [], accountTransactions || [], mainAccount)
+    : null;
   const remainingCashToTransfer = reg ? (reg.actualCashInHand > 0 ? reg.actualCashInHand : reg.expectedCash) : 0;
   const isVaultTransferred = currentEntry?.vaultTransfer?.transferred;
 
   const handleClosingTransferConfirm = (data: BanknoteModalSubmitData) => {
     if (!currentEntry) return;
+
+    if (data.totalAmount <= 0 || remainingCashToTransfer <= 0) {
+      alert('Devredilecek tutar sıfır veya eksi olamaz.');
+      setIsClosingTransferModalOpen(false);
+      return;
+    }
 
     if (onTransferToMasterSafe) {
       onTransferToMasterSafe({
@@ -422,24 +439,69 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
                 {/* 1. Opening Cash */}
                 <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] flex items-center justify-between">
                   <div>
-                    <span className="font-semibold text-gray-300">
-                      Önceki Günden Devir Kasa
-                    </span>
-                    <p className="text-[10px] text-gray-500">Güne başlanan nakit</p>
+                    <div className="flex items-center space-x-1.5">
+                      <span className="font-semibold text-gray-300">
+                        Önceki Günden Devir Kasa
+                      </span>
+                      {!currentEntry.isOpeningCashManual ? (
+                        <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                          ✓ Otomatik
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold">
+                          Elle Girildi
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center space-x-2 mt-0.5">
+                      <p className="text-[10px] text-gray-500">
+                        {!currentEntry.isOpeningCashManual
+                          ? 'Ana Kasa hareketlerinden otomatik devredildi'
+                          : 'Kullanıcı tarafından elle belirlendi'}
+                      </p>
+                      {currentEntry.isOpeningCashManual && currentEntry.status !== 'closed' && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onUpdateEntry) {
+                              const autoDevir = getAnaKasaBalanceBeforeDate(
+                                currentEntry.date,
+                                allEntries,
+                                expenses || [],
+                                invoices || [],
+                                accountTransactions || [],
+                                mainAccount
+                              );
+                              onUpdateEntry({
+                                ...currentEntry,
+                                openingCash: autoDevir,
+                                isOpeningCashManual: false,
+                                updatedAt: new Date().toISOString(),
+                              });
+                            }
+                          }}
+                          className="text-[10px] text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                        >
+                          Otomatik Devre Dön
+                        </button>
+                      )}
+                    </div>
                   </div>
                   <div className="w-32">
                     <SmartMoneyInput
                       value={currentEntry.openingCash}
+                      disabled={currentEntry.status === 'closed'}
                       onChange={(val) =>
                         onUpdateEntry &&
                         onUpdateEntry({
                           ...currentEntry,
                           openingCash: val,
+                          isOpeningCashManual: true,
                           updatedAt: new Date().toISOString(),
                         })
                       }
                       placeholder="0,00"
-                      className="px-2 py-1 text-xs font-bold text-white focus:border-orange-500"
+                      className="px-2 py-1 text-xs font-bold text-white focus:border-orange-500 disabled:opacity-60"
                     />
                   </div>
                 </div>
@@ -707,11 +769,25 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
                   </div>
 
                   <button
-                    onClick={() => setIsClosingTransferModalOpen(true)}
-                    className="w-full py-3 px-4 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-xl shadow-lg transition flex items-center justify-center space-x-2 cursor-pointer"
+                    onClick={() => {
+                      if (remainingCashToTransfer > 0) {
+                        setIsClosingTransferModalOpen(true);
+                      }
+                    }}
+                    disabled={remainingCashToTransfer <= 0}
+                    className={`w-full py-3 px-4 font-bold text-xs rounded-xl shadow-lg transition flex items-center justify-center space-x-2 ${
+                      remainingCashToTransfer > 0
+                        ? 'bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white cursor-pointer'
+                        : 'bg-gray-800 text-gray-500 border border-gray-700 cursor-not-allowed opacity-60'
+                    }`}
+                    title={remainingCashToTransfer <= 0 ? 'Devredilecek pozitif tutar bulunmadığı için aktarım yapılamaz (Tutar ≤ 0)' : undefined}
                   >
                     <Coins className="w-4 h-4" />
-                    <span>Kalan Nakti Banknot Sayımıyla Ana Kasaya Aktar</span>
+                    <span>
+                      {remainingCashToTransfer > 0
+                        ? 'Kalan Nakti Banknot Sayımıyla Ana Kasaya Aktar'
+                        : 'Kasa Devri Yapılamaz (Tutar 0 veya Eksi)'}
+                    </span>
                   </button>
                 </div>
               )}

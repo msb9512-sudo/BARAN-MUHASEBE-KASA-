@@ -25,7 +25,7 @@ import {
   ShoppingBag,
   Tag,
 } from 'lucide-react';
-import { DailyEntry, CashExpense, Invoice, PosDevice, PosZReportItem, CashWithdrawalItem } from '../types';
+import { DailyEntry, CashExpense, Invoice, PosDevice, PosZReportItem, CashWithdrawalItem, FinancialAccount, AccountTransaction } from '../types';
 import { formatCurrency, parseNumberInput, formatDateTR, evaluateMathExpression } from '../utils/formatters';
 import {
   calculateDailyRegister,
@@ -46,6 +46,8 @@ interface DailyCashAndVegaViewProps {
   posDevices?: PosDevice[];
   expenses: CashExpense[];
   invoices: Invoice[];
+  accounts?: FinancialAccount[];
+  accountTransactions?: AccountTransaction[];
   onOpenVegaImport?: () => void;
   onOpenBossReport?: () => void;
   onOpenQuickImport?: () => void;
@@ -62,6 +64,8 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
   posDevices,
   expenses,
   invoices,
+  accounts = [],
+  accountTransactions = [],
   onOpenVegaImport,
   onOpenBossReport,
   onOpenQuickImport,
@@ -96,7 +100,8 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     setExpandedVegaGroups({});
   };
 
-  const reg = calculateDailyRegister(currentEntry, expenses, invoices);
+  const mainAccount = accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+  const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const handleImportClick = onOpenVegaImport || onOpenQuickImport || (() => {});
 
   // Direct PDF Drop / Upload Handler
@@ -595,9 +600,18 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
           <div className="text-2xl font-bold text-orange-400 mt-1 whitespace-nowrap truncate">
             {formatCurrency(reg.expectedCash)}
           </div>
-          <span className="text-[11px] text-gray-300 block mt-0.5 font-medium whitespace-nowrap truncate" title="Devir + Nakit - (Giderler + Fatura)">
-            Devir + Nakit - Çıkışlar
-          </span>
+          <div className="flex items-center justify-between text-[11px] text-gray-300 mt-0.5 font-medium whitespace-nowrap truncate" title="Devir + Nakit - (Giderler + Fatura)">
+            <span className="truncate">Devir ({formatCurrency(reg.openingCash)}) + Nakit - Çıkışlar</span>
+            {!currentEntry.isOpeningCashManual ? (
+              <span className="ml-1 px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[9px] font-bold shrink-0">
+                Otomatik
+              </span>
+            ) : (
+              <span className="ml-1 px-1 py-0.2 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[9px] font-bold shrink-0">
+                Elle
+              </span>
+            )}
+          </div>
         </div>
       </div>
 

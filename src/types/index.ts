@@ -154,6 +154,9 @@ export interface DailyEntry {
   closedAt?: string;
   closedBy?: string;
   openingCash: number; // Önceki günden devreden kasa
+  isOpeningCashManual?: boolean; // Kullanıcı elle değiştirdiyse true, otomatik devir ise false
+  closingCarryOver?: number; // kullanıcının elle yazdığı devir tutarı
+  carryOverDifference?: number; // elle yazılan devir - hesaplanan kasa
   actualCashInHand: number; // Fiili sayılan kasa mevcudu
   notes: string;
   vegaReport: VegaReportData;
@@ -180,7 +183,8 @@ export interface FinancialAccount {
   type: AccountType;
   bankName?: string;
   accountNumber?: string; // IBAN veya Hesap No
-  initialBalance: number; // Başlangıç Bakiyesi
+  initialBalance: number; // Başlangıç Bakiyesi (Avans)
+  trackingStartDate?: string; // YYYY-MM-DD - Kasa Takip Başlangıç Tarihi
   isDefault?: boolean; // Ana Kasa için true
   color?: string; // Kart / rozet rengi
   notes?: string;

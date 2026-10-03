@@ -43,6 +43,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { SettingsView, SettingsSectionId } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { Sidebar } from './components/Sidebar';
+import { getAnaKasaBalanceBeforeDate } from './utils/calculations';
 import { getTodayIsoDate } from './utils/formatters';
 import { loadThemeSettings, applyThemeToDOM } from './utils/theme';
 
@@ -115,19 +116,53 @@ export function App() {
     document.body.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }, [activeTab]);
 
+  // Find Main Cash Account (Ana Kasa)
+  const mainAccount = appState.accounts?.find(
+    (a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash'
+  );
+
   // Ensure current entry exists for selected date
   const getCurrentEntry = (date: string): DailyEntry => {
-    if (appState.entries[date]) {
-      return appState.entries[date];
+    let entry = appState.entries[date];
+    if (entry) {
+      // 1) Yeni oluşturulan veya durumu "draft" (açık) olan günlerde openingCash otomatik olarak bu devir fonksiyonundan gelsin.
+      // 2) KAPALI (status: 'closed') günlerin kayıtlı openingCash değerine DOKUNMA, eski kapanışlar aynen kalsın.
+      if (entry.status !== 'closed' && !entry.isOpeningCashManual && mainAccount) {
+        const autoDevir = getAnaKasaBalanceBeforeDate(
+          date,
+          appState.entries,
+          appState.expenses,
+          appState.invoices,
+          appState.accountTransactions || [],
+          mainAccount
+        );
+        if (entry.openingCash !== autoDevir) {
+          entry = {
+            ...entry,
+            openingCash: autoDevir,
+          };
+        }
+      }
+      return entry;
     }
 
     // Default clean entry if date is new
+    const autoOpeningCash = getAnaKasaBalanceBeforeDate(
+      date,
+      appState.entries,
+      appState.expenses,
+      appState.invoices,
+      appState.accountTransactions || [],
+      mainAccount
+    );
+
     return {
       id: `entry-${date}`,
       date,
       status: 'draft',
-      openingCash: 0,
-      actualCashInHand: 0,
+      openingCash: autoOpeningCash,
+      isOpeningCashManual: false,
+      actualCashInHand: autoOpeningCash,
       cashWithdrawals: [],
       notes: '',
       vegaReport: {
@@ -509,6 +544,8 @@ export function App() {
               expenses={appState.expenses}
               invoices={appState.invoices}
               posDevices={appState.posDevices}
+              accounts={appState.accounts || []}
+              accountTransactions={appState.accountTransactions || []}
               onOpenVegaImport={() => setIsVegaImportOpen(true)}
               onOpenBossReport={() => setIsBossReportOpen(true)}
               onNavigate={(tab) => setActiveTab(tab)}
@@ -546,6 +583,8 @@ export function App() {
               expenses={appState.expenses}
               masterSafe={appState.masterSafe}
               selectedDate={selectedDate}
+              entries={appState.entries}
+              invoices={appState.invoices}
               onAddAccount={handleAddAccount}
               onUpdateAccount={handleUpdateAccount}
               onDeleteAccount={handleDeleteAccount}
@@ -595,6 +634,9 @@ export function App() {
               expenses={appState.expenses}
               invoices={appState.invoices}
               masterSafe={appState.masterSafe}
+              accounts={appState.accounts || []}
+              accountTransactions={appState.accountTransactions || []}
+              allEntries={appState.entries}
               onTransferToMasterSafe={handleTransferToMasterSafe}
               onOpenBossReport={() => setIsBossReportOpen(true)}
               onNavigate={(tab) => setActiveTab(tab)}
@@ -614,6 +656,7 @@ export function App() {
               onTransferToMasterSafe={handleTransferToMasterSafe}
               accounts={appState.accounts || []}
               accountTransactions={appState.accountTransactions || []}
+              allEntries={appState.entries}
               onUpdateAccount={handleUpdateAccount}
               onAddTransaction={handleAddAccountTransaction}
             />

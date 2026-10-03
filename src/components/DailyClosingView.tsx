@@ -18,11 +18,12 @@ import {
   ArrowRight,
   Coins,
   Info,
+  Edit2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts } from '../types';
-import { formatCurrency, formatDateTR, formatDateWithDayTR } from '../utils/formatters';
-import { calculateDailyRegister, auditDailyEntry } from '../utils/calculations';
+import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts, FinancialAccount, AccountTransaction } from '../types';
+import { formatCurrency, formatDateTR, formatDateWithDayTR, parseNumberInput } from '../utils/formatters';
+import { calculateDailyRegister, auditDailyEntry, getAnaKasaBalanceBeforeDate } from '../utils/calculations';
 import { exportDailyRegisterToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
 
@@ -32,6 +33,9 @@ interface DailyClosingViewProps {
   expenses: CashExpense[];
   invoices: Invoice[];
   masterSafe?: MasterSafeState;
+  accounts?: FinancialAccount[];
+  accountTransactions?: AccountTransaction[];
+  allEntries?: Record<string, DailyEntry> | DailyEntry[];
   onTransferToMasterSafe?: (transferData: {
     date: string;
     amount: number;
@@ -49,27 +53,31 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   expenses,
   invoices,
   masterSafe,
+  accounts = [],
+  accountTransactions = [],
+  allEntries = [],
   onTransferToMasterSafe,
   onOpenBossReport,
   onNavigate,
 }) => {
   const [accountantName, setAccountantName] = useState(currentEntry.closedBy || 'Mehmet Muhasebe');
-  const reg = calculateDailyRegister(currentEntry, expenses, invoices);
-  const warnings = auditDailyEntry(currentEntry, expenses, invoices);
+  const [isEditingDevir, setIsEditingDevir] = useState(false);
+  const [devirInput, setDevirInput] = useState('');
+  const [isCarryOverModalOpen, setIsCarryOverModalOpen] = useState(false);
+  const [carryOverInput, setCarryOverInput] = useState('');
+
+  const mainAccount = accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+  const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
+  const warnings = auditDailyEntry(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
   const isClosed = currentEntry.status === 'closed';
 
-  const handleCloseDay = () => {
-    if (errorCount > 0) {
-      const confirmClose = window.confirm(
-        `Dikkat: Sistemde ${errorCount} adet kritik uyarı/fark bulunuyor. Yine de bu günün kapanışını onaylamak istiyor musunuz?`
-      );
-      if (!confirmClose) return;
-    }
-
+  const finalizeClosing = (carryOver?: number, diff?: number) => {
     onUpdateEntry({
       ...currentEntry,
       status: 'closed',
+      closingCarryOver: carryOver,
+      carryOverDifference: diff,
       closedAt: new Date().toISOString(),
       closedBy: accountantName.trim() || 'Muhasebe Sorumlusu',
       updatedAt: new Date().toISOString(),
@@ -87,11 +95,44 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
     }
   };
 
+  const handleCloseDay = () => {
+    if (errorCount > 0) {
+      const confirmClose = window.confirm(
+        `Dikkat: Sistemde ${errorCount} adet kritik uyarı/fark bulunuyor. Yine de bu günün kapanışını onaylamak istiyor musunuz?`
+      );
+      if (!confirmClose) return;
+    }
+
+    // 3) Fiili sayılan kasa ile beklenen kasa tutuyorsa hiçbir şey sorma
+    // Fark varsa küçük pencere aç: Yarına devredecek tutar kutusu
+    const hasCashDifference = Math.abs(reg.cashDifference) >= 0.01;
+    if (hasCashDifference) {
+      setCarryOverInput(reg.expectedCash.toString());
+      setIsCarryOverModalOpen(true);
+      return;
+    }
+
+    finalizeClosing(undefined, undefined);
+  };
+
+  const handleConfirmCarryOver = () => {
+    const parsed = parseFloat(carryOverInput.replace(',', '.'));
+    if (isNaN(parsed)) {
+      window.alert('Lütfen geçerli bir devir tutarı giriniz.');
+      return;
+    }
+    const diff = Math.round((parsed - reg.expectedCash) * 100) / 100;
+    setIsCarryOverModalOpen(false);
+    finalizeClosing(parsed, diff);
+  };
+
   const handleReopenDay = () => {
     if (window.confirm('Bu günün kapanış kilidini açıp yeniden düzenlenebilir duruma getirmek istiyor musunuz?')) {
       onUpdateEntry({
         ...currentEntry,
         status: 'draft',
+        closingCarryOver: undefined,
+        carryOverDifference: undefined,
         updatedAt: new Date().toISOString(),
       });
     }
@@ -134,10 +175,22 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
               {formatDateWithDayTR(currentEntry.date)}
             </h2>
             {isClosed && (
-              <p className="text-xs text-gray-400 font-mono mt-1">
-                Kapanış Yapan: <strong className="text-gray-200">{currentEntry.closedBy}</strong> • Saat:{' '}
-                {new Date(currentEntry.closedAt || '').toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
-              </p>
+              <div className="space-y-0.5 mt-1 font-mono text-xs">
+                <p className="text-gray-400">
+                  Kapanış Yapan: <strong className="text-gray-200">{currentEntry.closedBy}</strong> • Saat:{' '}
+                  {new Date(currentEntry.closedAt || '').toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
+                </p>
+                {currentEntry.closingCarryOver !== undefined && (
+                  <p className="text-amber-300">
+                    Yarına Devreden Kasa: <strong className="text-white">{formatCurrency(currentEntry.closingCarryOver)}</strong>
+                    {currentEntry.carryOverDifference !== undefined && Math.abs(currentEntry.carryOverDifference) >= 0.01 && (
+                      <span className="ml-2 px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[10px] font-bold">
+                        Kasa Düzeltmesi: {currentEntry.carryOverDifference > 0 ? '+' : ''}{formatCurrency(currentEntry.carryOverDifference)}
+                      </span>
+                    )}
+                  </p>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -335,17 +388,122 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
             <div className="p-4 sm:p-5 rounded-xl bg-[#0d1117] text-white border border-[#30363d] space-y-2.5 flex flex-col justify-between">
               <div className="space-y-2">
                 <div className="flex items-center justify-between text-gray-400">
-                  <span>Önceki Günden Devir:</span>
-                  <span className="font-mono">{formatCurrency(reg.openingCash)}</span>
+                  <div className="flex items-center space-x-1.5">
+                    <span>Önceki Günden Devir:</span>
+                    {!currentEntry.isOpeningCashManual ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                        ✓ Otomatik
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold">
+                        Elle
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    {!isEditingDevir ? (
+                      <>
+                        <span className="font-mono">{formatCurrency(reg.openingCash)}</span>
+                        {!isClosed && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDevirInput(reg.openingCash.toString());
+                              setIsEditingDevir(true);
+                            }}
+                            className="text-gray-400 hover:text-white text-xs cursor-pointer p-0.5"
+                            title="Devir Tutarını Elle Değiştir"
+                          >
+                            <Edit2 className="w-3 h-3" />
+                          </button>
+                        )}
+                        {currentEntry.isOpeningCashManual && !isClosed && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const autoDevir = getAnaKasaBalanceBeforeDate(
+                                currentEntry.date,
+                                allEntries,
+                                expenses,
+                                invoices,
+                                accountTransactions,
+                                mainAccount
+                              );
+                              onUpdateEntry({
+                                ...currentEntry,
+                                openingCash: autoDevir,
+                                isOpeningCashManual: false,
+                                updatedAt: new Date().toISOString(),
+                              });
+                            }}
+                            className="text-[10px] text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                            title="Otomatik Devir Hesabına Dön"
+                          >
+                            Oto
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <div className="flex items-center space-x-1">
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          value={devirInput}
+                          onChange={(e) => setDevirInput(e.target.value.replace(/[^0-9.,]/g, ''))}
+                          className="w-20 bg-[#161b22] border border-orange-500 rounded px-1.5 py-0.5 text-xs text-white font-mono focus:outline-none"
+                          autoFocus
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const num = parseNumberInput(devirInput);
+                            onUpdateEntry({
+                              ...currentEntry,
+                              openingCash: num,
+                              isOpeningCashManual: true,
+                              updatedAt: new Date().toISOString(),
+                            });
+                            setIsEditingDevir(false);
+                          }}
+                          className="px-1.5 py-0.5 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-bold rounded cursor-pointer"
+                        >
+                          ✓
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingDevir(false)}
+                          className="px-1.5 py-0.5 bg-gray-700 hover:bg-gray-600 text-gray-300 text-[10px] rounded cursor-pointer"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
+
                 <div className="flex items-center justify-between text-gray-400">
                   <span>(+) Nakit Satış:</span>
                   <span className="font-mono text-emerald-400 font-bold">+{formatCurrency(reg.cashSales)}</span>
                 </div>
+
+                {reg.accountCashDeposits > 0 && (
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span>(+) Ana Kasa Girişleri:</span>
+                    <span className="font-mono text-emerald-400 font-bold">+{formatCurrency(reg.accountCashDeposits)}</span>
+                  </div>
+                )}
+
                 <div className="flex items-center justify-between text-gray-400">
                   <span>(-) Kasadan Toplam Çıkan:</span>
                   <span className="font-mono text-amber-400 font-bold">-{formatCurrency(reg.totalCashOutflow)}</span>
                 </div>
+
+                {reg.accountCashWithdrawals > 0 && (
+                  <div className="flex items-center justify-between text-gray-400">
+                    <span>(-) Ana Kasa Çıkışları:</span>
+                    <span className="font-mono text-amber-400 font-bold">-{formatCurrency(reg.accountCashWithdrawals)}</span>
+                  </div>
+                )}
               </div>
 
               <div className="pt-2.5 border-t border-[#30363d] space-y-2">
@@ -548,6 +706,103 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
           currentTab="closing"
           onNavigate={onNavigate}
         />
+      )}
+
+      {/* Devir ve Kasa Farkı Onay Penceresi (Kural 3) */}
+      {isCarryOverModalOpen && (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4 z-50 animate-in fade-in">
+          <div className="bg-[#161b22] rounded-xl border border-amber-500/50 w-full max-w-md p-6 shadow-2xl space-y-5 text-white font-mono">
+            <div className="flex items-center space-x-3 border-b border-[#30363d] pb-3">
+              <div className="p-2.5 rounded-lg bg-amber-500/20 text-amber-400 border border-amber-500/30">
+                <AlertTriangle className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white">Kasa Sayım Farkı ve Devir Onayı</h3>
+                <p className="text-xs text-gray-400 font-sans">
+                  Sayılan kasa ile hesaplanan kasa arasında fark tespit edildi.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-[#0d1117] rounded-xl border border-[#30363d] p-4 space-y-2.5 text-xs">
+              <div className="flex items-center justify-between text-gray-300">
+                <span>Hesaplanan Kasa:</span>
+                <span className="font-bold text-white">{formatCurrency(reg.expectedCash)}</span>
+              </div>
+              <div className="flex items-center justify-between text-gray-300">
+                <span>Fiili Sayılan Kasa:</span>
+                <span className="font-bold text-sky-400">{formatCurrency(reg.actualCashInHand)}</span>
+              </div>
+              <div className="flex items-center justify-between border-t border-[#21262d] pt-2">
+                <span className="font-semibold text-gray-200">Kasa Farkı:</span>
+                <span className={`font-bold ${reg.cashDifference > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {reg.cashDifference > 0 ? '+' : ''}{formatCurrency(reg.cashDifference)}{' '}
+                  <span className="text-[10px] font-normal opacity-80">
+                    ({reg.cashDifference > 0 ? 'Fazla' : 'Eksik'})
+                  </span>
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-amber-400 uppercase tracking-wider">
+                Yarına Devredecek Tutar (₺):
+              </label>
+              <div className="relative">
+                <input
+                  type="number"
+                  step="0.01"
+                  value={carryOverInput}
+                  onChange={(e) => setCarryOverInput(e.target.value)}
+                  className="w-full bg-[#0d1117] border-2 border-amber-500/60 rounded-xl px-4 py-3 text-lg font-black text-white focus:outline-none focus:border-amber-400"
+                  placeholder="0.00"
+                  autoFocus
+                />
+                <span className="absolute right-3.5 top-3.5 text-sm text-gray-400 font-bold">₺</span>
+              </div>
+              {(() => {
+                const val = parseFloat(carryOverInput.replace(',', '.'));
+                if (isNaN(val)) return null;
+                const diff = Math.round((val - reg.expectedCash) * 100) / 100;
+                return (
+                  <p className="text-[11px] text-gray-400 font-sans">
+                    {Math.abs(diff) < 0.01 ? (
+                      <span className="text-gray-300">
+                        Hesaplanan kasa ({formatCurrency(reg.expectedCash)}) yarına devir olarak aktarılacak.
+                      </span>
+                    ) : (
+                      <span className={diff > 0 ? 'text-emerald-400' : 'text-amber-400'}>
+                        Yarına aktarılacak kasa düzeltmesi:{' '}
+                        <strong>
+                          {diff > 0 ? '+' : ''}
+                          {formatCurrency(diff)}
+                        </strong>
+                      </span>
+                    )}
+                  </p>
+                );
+              })()}
+            </div>
+
+            <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#30363d]">
+              <button
+                type="button"
+                onClick={() => setIsCarryOverModalOpen(false)}
+                className="px-4 py-2.5 rounded-lg border border-[#30363d] hover:bg-[#21262d] text-gray-300 text-xs font-semibold transition cursor-pointer"
+              >
+                Vazgeç
+              </button>
+              <button
+                type="button"
+                onClick={handleConfirmCarryOver}
+                className="px-5 py-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-lg transition cursor-pointer flex items-center space-x-1.5"
+              >
+                <Lock className="w-3.5 h-3.5" />
+                <span>Onayla ve Kilitle</span>
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
