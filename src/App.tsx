@@ -689,6 +689,8 @@ export function App() {
         expenses={appState.expenses}
         invoices={appState.invoices}
         profile={appState.profile}
+        openAccountCustomers={appState.openAccountCustomers || []}
+        openAccountTransactions={appState.openAccountTransactions || []}
       />
 
       {/* Vega Report Import Modal */}
