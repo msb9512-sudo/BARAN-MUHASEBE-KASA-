@@ -35,7 +35,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
   // Local version state
-  const [currentVersion, setCurrentVersion] = useState<string>('1.0.5');
+  const [currentVersion, setCurrentVersion] = useState<string>('1.0.6');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
   const [userDataPath, setUserDataPath] = useState<string | null>(null);
 
@@ -674,54 +674,54 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               </div>
             )}
 
-            {/* v1.0.5 Güncel Sürüm İçeriği ve Değişiklik Notları */}
+            {/* v1.0.6 Güncel Sürüm İçeriği ve Değişiklik Notları */}
             <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3 text-xs font-mono">
               <div className="flex items-center justify-between border-b border-[#21262d] pb-2">
                 <div className="flex items-center space-x-2">
                   <GitCommit className="w-4 h-4 text-orange-400" />
                   <span className="font-bold text-white uppercase tracking-wider">
-                    v1.0.5 Sürüm İçeriği & Yenilikler
+                    v1.0.6 Sürüm İçeriği & Yenilikler
                   </span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-bold">
-                  v1.0.5 Güncel
+                  v1.0.6 Güncel
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11px] text-gray-300">
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>💳 Üstte POS & Dikey Düzen</span>
+                    <span>🧾 Patron Raporu Giderler Modülü</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Günlük Kasa ekranında POS Cihazları Z Raporları en üste alındı. Grup raporu satışları ve ürün grupları dikey sırada tam genişlikte yerleştirildi.
+                    Kategori bazında tutar, adet ve yüzde dağılımı, açılır/kapanır harcama kalemleri, ödeme türleri (Kasa, Kart, Banka, Cepte) ve kasadan nakit ödenen faturalar eklendi.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>📅 İnteraktif Mini Takvim & Dinamik Bugün</span>
+                    <span>👥 Patron Raporu Cari (Açık Hesap)</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Üst bardaki "Bugün" butonu anlık gerçek güne gider. Tarihe tıklandığında ay, yıl ve gün seçimi sağlayan Türkçe açılır mini takvim popover'ı açılır.
+                    Günün veresiye borç ve tahsilat hareketleri, güncel cari bakiye alacak listesi, Vega Açık Hesap tutarı ile cari borç kayıtları mutabakat denetimi eklendi.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>📋 Genişletilmiş Kapanış Pencereleri</span>
+                    <span>📄 Dinamik PDF Rapor Ayrıştırma</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Günlük Kapanış ekranında 4 finansal pencere tam genişlikte 2 sütunlu büyük pencerelere genişletildi. Otomatik Kapanış Denetim Listesi en alta 4'lü kart olarak konumlandırıldı.
+                    Sabit listeye bağlı kalmadan alt toplam satırı deseninden grup başlığı algılama, Toplam İskonto ve Kasa Gelir Gider tutarlarının hatasız okunması ve doğrulama denetimleri geliştirildi.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>⚡ Kompakt Gider Formu & Sade Tasarım</span>
+                    <span>💬 WhatsApp / SMS Rapor Formatı</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Gider ekleme penceresindeki yer kaplayan uyarı kutusu ve alt bilgi formül yazısı kaldırılarak sade, hızlı ve ergonomik bir kullanıcı deneyimi sağlandı.
+                    WhatsApp metin çıktısına Giderler ve Cari (Açık Hesap) bölümleri entegre edildi. Tek tuşla patrona kopyalanabilir tam kapsamlı özet metin oluşturulur.
                   </p>
                 </div>
               </div>
@@ -1001,10 +1001,10 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>version.txt Dosyasını Güncelleyin</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.5</code>):
+                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.6</code>):
                 </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 font-mono text-emerald-400">
-                  1.0.5
+                  1.0.6
                 </div>
               </div>
 
@@ -1015,7 +1015,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 </div>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 space-y-1 font-mono text-gray-200">
                   <div>git add version.txt</div>
-                  <div>git commit -m "release: v1.0.5"</div>
+                  <div>git commit -m "release: v1.0.6"</div>
                   <div className="text-orange-400">git push origin main</div>
                 </div>
               </div>
@@ -1030,7 +1030,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <li><code>version.txt</code> sürümünü <code>package.json</code> ile senkronize eder.</li>
                   <li><code>npm run build</code> ile React kodlarını derler.</li>
                   <li><code>electron-builder --win --publish always</code> komutuyla Windows NSIS `.exe` kurulum dosyasını oluşturur.</li>
-                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.5</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
+                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.6</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
                 </ul>
               </div>
 
