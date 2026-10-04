@@ -133,7 +133,18 @@ export function loadCashExpenses(): CashExpense[] {
       saveCashExpenses(initial.expenses);
       return initial.expenses;
     }
-    return JSON.parse(raw);
+    const parsed: CashExpense[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((exp) => {
+      if (exp.accountId === 'ana-kasa') {
+        return {
+          ...exp,
+          accountId: 'gunluk-kasa',
+          accountName: 'Günlük İşleyiş Kasası',
+        };
+      }
+      return exp;
+    });
   } catch (e) {
     console.error('Failed to load cash expenses', e);
     return [];
@@ -415,20 +426,10 @@ export function saveOpenAccountTransactions(transactions: OpenAccountTransaction
 
 export const DEFAULT_ACCOUNTS: FinancialAccount[] = [
   {
-    id: 'ana-kasa',
-    name: 'Ana Kasa (Nakit)',
-    type: 'cash',
-    isDefault: true,
-    initialBalance: 0,
-    color: '#f97316',
-    notes: 'İşletme ana nakit kasası',
-    createdAt: new Date().toISOString(),
-  },
-  {
     id: 'gunluk-kasa',
     name: 'Günlük İşleyiş Kasası',
     type: 'cash',
-    isDefault: false,
+    isDefault: true,
     initialBalance: 0,
     color: '#10b981',
     notes: 'Günlük kasa çekmecesi ve işleyiş bakiyesi',
@@ -453,28 +454,27 @@ export function loadAccounts(): FinancialAccount[] {
       saveAccounts(DEFAULT_ACCOUNTS);
       return DEFAULT_ACCOUNTS;
     }
-    const parsed: FinancialAccount[] = JSON.parse(raw);
+    let parsed: FinancialAccount[] = JSON.parse(raw);
     if (!parsed || !Array.isArray(parsed) || parsed.length === 0) {
       saveAccounts(DEFAULT_ACCOUNTS);
       return DEFAULT_ACCOUNTS;
     }
-    const hasDefault = parsed.some((a) => a.isDefault || a.id === 'ana-kasa');
-    if (!hasDefault) {
-      parsed.unshift(DEFAULT_ACCOUNTS[0]);
-    }
+
+    // Ana Kasa'yı kaldır
+    parsed = parsed.filter((a) => a.id !== 'ana-kasa');
+
     const hasGunlukKasa = parsed.some((a) => a.id === 'gunluk-kasa');
     if (!hasGunlukKasa) {
-      parsed.splice(1, 0, DEFAULT_ACCOUNTS[1]);
+      parsed.unshift(DEFAULT_ACCOUNTS[0]);
     }
-    // Ensure gunluk-kasa is never marked as default, and ana-kasa is default
+
+    // Günlük Kasa varsayılan kasa olsun
     parsed.forEach((a) => {
       if (a.id === 'gunluk-kasa') {
-        a.isDefault = false;
-      }
-      if (a.id === 'ana-kasa') {
         a.isDefault = true;
       }
     });
+
     saveAccounts(parsed);
     return parsed;
   } catch (e) {
@@ -495,7 +495,36 @@ export function loadAccountTransactions(): AccountTransaction[] {
   try {
     const raw = localStorage.getItem(STORAGE_KEYS.ACCOUNT_TRANSACTIONS);
     if (!raw) return [];
-    return JSON.parse(raw);
+    const parsed: AccountTransaction[] = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((tx) => {
+        // Eski ana-kasa ile gunluk-kasa arası transfer kayıtlarını filtrele
+        if (
+          tx.type === 'transfer' &&
+          ((tx.fromAccountId === 'ana-kasa' && tx.toAccountId === 'gunluk-kasa') ||
+            (tx.fromAccountId === 'gunluk-kasa' && tx.toAccountId === 'ana-kasa'))
+        ) {
+          return false;
+        }
+        return true;
+      })
+      .map((tx) => {
+        const updated = { ...tx };
+        if (updated.accountId === 'ana-kasa') {
+          updated.accountId = 'gunluk-kasa';
+          updated.accountName = 'Günlük İşleyiş Kasası';
+        }
+        if (updated.fromAccountId === 'ana-kasa') {
+          updated.fromAccountId = 'gunluk-kasa';
+          updated.fromAccountName = 'Günlük İşleyiş Kasası';
+        }
+        if (updated.toAccountId === 'ana-kasa') {
+          updated.toAccountId = 'gunluk-kasa';
+          updated.toAccountName = 'Günlük İşleyiş Kasası';
+        }
+        return updated;
+      });
   } catch (e) {
     console.error('Failed to load account transactions', e);
     return [];
@@ -531,7 +560,6 @@ export function calculateAccountBalance(
   invoices?: Invoice[]
 ): AccountBalanceSummary {
   const initialBalance = Number(account.initialBalance) || 0;
-  const isAnaKasa = account.id === 'ana-kasa' || (account.isDefault && account.id !== 'gunluk-kasa');
 
   // Helper to check if a transaction is an automated daily closing / devir record
   const isDailyClosingTx = (tx: AccountTransaction) =>
@@ -644,7 +672,7 @@ export function calculateAccountBalance(
     };
   }
 
-  // Diğer hesaplar (Ana Kasa, Bankalar, Kredi Kartları)
+  // Diğer hesaplar (Bankalar, Kredi Kartları vb.)
   let totalDeposits = 0;
   let totalWithdrawals = 0;
   let totalTransfersIn = 0;
@@ -652,11 +680,10 @@ export function calculateAccountBalance(
   let totalExpenses = 0;
 
   transactions.forEach((tx) => {
-    // 4) ESKİ KAYITLAR: Eski "Gün Sonu Kasa Devri" işlemleri ve otomatik kasa devirleri hesaba katılmasın!
     if (isDailyClosingTx(tx)) return;
 
     const amount = Number(tx.amount) || 0;
-    if (tx.accountId === account.id || (!tx.accountId && isAnaKasa)) {
+    if (tx.accountId === account.id) {
       if (tx.type === 'deposit') {
         totalDeposits += amount;
       } else if (tx.type === 'withdrawal') {
@@ -673,13 +700,6 @@ export function calculateAccountBalance(
     if (!exp.isActive) return;
     const amount = Number(exp.amount) || 0;
 
-    // 3) ÇİFT GİDER: Kasadan ödenen nakit günlük giderler (paidBy Kasa/Nakit) SADECE Günlük Kasa'dan düşsün.
-    // Ana Kasa bakiyesinden DÜŞMESİN. exp.accountId === 'ana-kasa' olsa bile nakit giderler Ana Kasa'dan sayılmaz!
-    const isCashExpense = isCashExpenseMethod(exp.paidBy);
-    if (isAnaKasa && isCashExpense) {
-      return;
-    }
-
     if (exp.accountId === account.id) {
       totalExpenses += amount;
     } else if (!exp.accountId) {
@@ -690,9 +710,6 @@ export function calculateAccountBalance(
       }
     }
   });
-
-  // 4) ESKİ KAYITLAR: masterSafe 'daily_closing' kaynaklı otomatik deposit'ler Ana Kasa'ya hiçbir şekilde SAYILMASIN!
-  // Ana Kasa sadece başlangıç bakiyesi + kullanıcının elle yaptığı para yatır/çek ve virmanlar ile değişir.
 
   const totalInflow = initialBalance + totalDeposits + totalTransfersIn;
   const totalOutflow = totalWithdrawals + totalTransfersOut + totalExpenses;

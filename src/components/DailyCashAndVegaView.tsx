@@ -100,7 +100,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     setExpandedVegaGroups({});
   };
 
-  const mainAccount = accounts?.find((a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')) || accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa');
+  const mainAccount = accounts?.find((a) => a.id === 'gunluk-kasa') || accounts?.find((a) => a.isDefault || a.type === 'cash') || accounts?.[0];
   const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const handleImportClick = onOpenVegaImport || onOpenQuickImport || (() => {});
 

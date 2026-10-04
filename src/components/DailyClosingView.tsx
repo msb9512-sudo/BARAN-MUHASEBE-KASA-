@@ -19,13 +19,15 @@ import {
   Coins,
   Info,
   Edit2,
+  Trash2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts, FinancialAccount, AccountTransaction } from '../types';
+import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts, FinancialAccount, AccountTransaction, CashWithdrawalItem } from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR, parseNumberInput } from '../utils/formatters';
 import { calculateDailyRegister, auditDailyEntry, getPreviousDayClosingCarryOver } from '../utils/calculations';
 import { exportDailyRegisterToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
+import { SmartMoneyInput } from './SmartMoneyInput';
 
 interface DailyClosingViewProps {
   currentEntry: DailyEntry;
@@ -70,12 +72,61 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   const [isCarryOverModalOpen, setIsCarryOverModalOpen] = useState(false);
   const [carryOverInput, setCarryOverInput] = useState('');
 
-  const mainAccount = accounts?.find((a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')) || accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa');
-  const gunlukKasaAccount = accounts?.find((a) => a.id === 'gunluk-kasa');
+  const gunlukKasaAccount = accounts?.find((a) => a.id === 'gunluk-kasa') || accounts?.find((a) => a.isDefault || a.type === 'cash') || accounts?.[0];
+  const mainAccount = gunlukKasaAccount;
   const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const warnings = auditDailyEntry(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
   const isClosed = currentEntry.status === 'closed';
+
+  const handleAddWithdrawal = () => {
+    if (!currentEntry || !onUpdateEntry) return;
+    const currentWithdrawals = currentEntry.cashWithdrawals || [];
+    const newWithdrawal: CashWithdrawalItem = {
+      id: `cw-${Date.now()}`,
+      description: 'Bankaya Yatırılan Nakit',
+      amount: 0,
+      target: 'Banka Hesabına Yatırılan',
+    };
+    onUpdateEntry({
+      ...currentEntry,
+      cashWithdrawals: [...currentWithdrawals, newWithdrawal],
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleUpdateWithdrawal = (index: number, field: keyof CashWithdrawalItem, val: any) => {
+    if (!currentEntry || !onUpdateEntry) return;
+    const items = [...(currentEntry.cashWithdrawals || [])];
+    items[index] = {
+      ...items[index],
+      [field]: field === 'amount' ? parseNumberInput(val) : val,
+    };
+    onUpdateEntry({
+      ...currentEntry,
+      cashWithdrawals: items,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleRemoveWithdrawal = (index: number) => {
+    if (!currentEntry || !onUpdateEntry) return;
+    const items = (currentEntry.cashWithdrawals || []).filter((_, i) => i !== index);
+    onUpdateEntry({
+      ...currentEntry,
+      cashWithdrawals: items,
+      updatedAt: new Date().toISOString(),
+    });
+  };
+
+  const handleSyncToActualCash = () => {
+    if (!currentEntry || !onUpdateEntry || !reg) return;
+    onUpdateEntry({
+      ...currentEntry,
+      actualCashInHand: reg.expectedCash,
+      updatedAt: new Date().toISOString(),
+    });
+  };
 
   const finalizeClosing = (carryOver?: number, diff?: number) => {
     const finalCarryOver = carryOver !== undefined ? carryOver : reg.expectedCash;
@@ -245,6 +296,280 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
       {/* Main Container: Stacked Vertically with Enriched Big Windows on Top, Checklist at Bottom */}
       <div className="space-y-6">
         
+        {/* Otomatik Kasa Hesabı Bölümü (Hemen Başlığın Altında) */}
+        <div className="bg-[#161b22] rounded-2xl border border-emerald-500/40 p-5 shadow-xl font-mono space-y-4">
+          <div className="flex items-center justify-between border-b border-[#30363d] pb-3.5 flex-wrap gap-2">
+            <div className="flex items-center space-x-3">
+              <span className="w-8 h-8 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 font-mono font-bold text-sm flex items-center justify-center">
+                ⚡
+              </span>
+              <div>
+                <h3 className="font-bold text-white text-base">
+                  Otomatik Kasa Hesabı
+                </h3>
+                <span className="text-xs text-gray-400">
+                  Devir + Nakit Gelir - (Giderler + Fatura + Çekim) = Beklenen Net Kasa
+                </span>
+              </div>
+            </div>
+            <span className="text-xs px-2.5 py-1 rounded font-bold bg-[#21262d] text-gray-300 border border-[#30363d]">
+              {formatDateTR(currentEntry.date)}
+            </span>
+          </div>
+
+          {/* Grid Layout: Left Column = Flow Calculation / Right Column = Kalan Net Kasa & Sayım */}
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 pt-1">
+            {/* Left Column (7 cols): Step-by-Step Flow */}
+            <div className="lg:col-span-7 space-y-2.5 text-xs">
+              {/* 1. Opening Cash */}
+              <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] flex items-center justify-between">
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-gray-300">
+                      Önceki Günden Devir Kasa
+                    </span>
+                    {!currentEntry.isOpeningCashManual ? (
+                      <span className="px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold">
+                        ✓ Otomatik
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-400 border border-amber-500/30 text-[10px] font-bold">
+                        Elle Girildi
+                      </span>
+                    )}
+                  </div>
+                  <div className="flex items-center space-x-2 mt-0.5">
+                    <p className="text-[10px] text-gray-500">
+                      {!currentEntry.isOpeningCashManual
+                        ? 'Önceki gün kapanışından otomatik devredildi'
+                        : 'Kullanıcı tarafından elle belirlendi'}
+                    </p>
+                    {currentEntry.isOpeningCashManual && !isClosed && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const autoDevir = getPreviousDayClosingCarryOver(
+                            currentEntry.date,
+                            allEntries,
+                            gunlukKasaAccount
+                          );
+                          onUpdateEntry({
+                            ...currentEntry,
+                            openingCash: autoDevir,
+                            isOpeningCashManual: false,
+                            updatedAt: new Date().toISOString(),
+                          });
+                        }}
+                        className="text-[10px] text-sky-400 hover:text-sky-300 underline cursor-pointer"
+                      >
+                        Otomatik Devre Dön
+                      </button>
+                    )}
+                  </div>
+                </div>
+                <div className="w-32">
+                  <SmartMoneyInput
+                    value={currentEntry.openingCash}
+                    disabled={isClosed}
+                    onChange={(val) =>
+                      onUpdateEntry({
+                        ...currentEntry,
+                        openingCash: val,
+                        isOpeningCashManual: true,
+                        updatedAt: new Date().toISOString(),
+                      })
+                    }
+                    placeholder="0,00"
+                    className="px-2 py-1 text-xs font-bold text-white focus:border-orange-500 disabled:opacity-60"
+                  />
+                </div>
+              </div>
+
+              {/* 2. Cash Sales from Report */}
+              <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] flex items-center justify-between">
+                <div>
+                  <span className="font-semibold text-emerald-400">
+                    (+) Günlük Nakit Satış Hasılatı
+                  </span>
+                  <p className="text-[10px] text-gray-500">Vega Raporu Nakit Geliri</p>
+                </div>
+                <span className="text-sm font-bold text-emerald-400">
+                  +{formatCurrency(reg.cashSales)}
+                </span>
+              </div>
+
+              {/* 3. Cash Expenses */}
+              <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] flex items-center justify-between">
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-amber-400">
+                      (-) Kasadan Ödenen Giderler
+                    </span>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('expenses')}
+                        className="text-[10px] text-amber-400/80 hover:text-amber-300 underline cursor-pointer"
+                      >
+                        İncele
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-500">
+                    Kasadan elden ödenen işletme giderleri
+                  </p>
+                </div>
+                <span className="text-sm font-bold text-amber-400">
+                  -{formatCurrency(reg.cashExpenses)}
+                </span>
+              </div>
+
+              {/* 4. Invoice Cash Payments */}
+              <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] flex items-center justify-between">
+                <div>
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-semibold text-purple-400">
+                      (-) Kasadan Fatura Ödemeleri
+                    </span>
+                    {onNavigate && (
+                      <button
+                        onClick={() => onNavigate('invoices')}
+                        className="text-[10px] text-purple-400/80 hover:text-purple-300 underline cursor-pointer"
+                      >
+                        İncele
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[10px] text-gray-500">
+                    Kasadan nakit ödenen tedarikçi faturaları
+                  </p>
+                </div>
+                <span className="text-sm font-bold text-purple-400">
+                  -{formatCurrency(reg.invoiceCashPayments)}
+                </span>
+              </div>
+
+              {/* 5. Bank / Cash Withdrawals */}
+              <div className="bg-[#0d1117] p-2.5 rounded-lg border border-[#30363d] space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold text-gray-300">
+                    (-) Kasadan Bankaya Yatırılan / Çekim
+                  </span>
+                  {!isClosed && (
+                    <button
+                      onClick={handleAddWithdrawal}
+                      className="text-[11px] text-orange-400 hover:text-orange-300 font-semibold hover:underline cursor-pointer"
+                    >
+                      + Çekim Ekle
+                    </button>
+                  )}
+                </div>
+
+                {currentEntry.cashWithdrawals?.map((w, idx) => (
+                  <div key={w.id || idx} className="flex items-center space-x-2 pt-1">
+                    <input
+                      type="text"
+                      disabled={isClosed}
+                      value={w.description}
+                      onChange={(e) => handleUpdateWithdrawal(idx, 'description', e.target.value)}
+                      placeholder="Bankaya Yatırılan"
+                      className="bg-[#161b22] border border-[#30363d] rounded px-2 py-0.5 text-xs text-gray-200 flex-1 focus:border-orange-500 focus:outline-none disabled:opacity-60"
+                    />
+                    <div className="w-28">
+                      <SmartMoneyInput
+                        value={w.amount}
+                        disabled={isClosed}
+                        onChange={(val) => handleUpdateWithdrawal(idx, 'amount', val)}
+                        placeholder="0,00"
+                        className="px-2 py-0.5 text-xs font-bold text-white focus:border-orange-500 disabled:opacity-60"
+                      />
+                    </div>
+                    {!isClosed && (
+                      <button
+                        onClick={() => handleRemoveWithdrawal(idx)}
+                        className="text-gray-500 hover:text-rose-400 p-1 cursor-pointer"
+                        title="Sil"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+
+                {(!currentEntry.cashWithdrawals || currentEntry.cashWithdrawals.length === 0) && (
+                  <p className="text-[10px] text-gray-500">Bankaya yatırılan nakit kaydı yok.</p>
+                )}
+              </div>
+            </div>
+
+            {/* Right Column (5 cols): Kalan Net Kasa, Sayılan Kasa Tutarı & Denkliği */}
+            <div className="lg:col-span-5 space-y-3 flex flex-col justify-between">
+              <div className="space-y-3">
+                {/* 6. Expected Cash (OTOMATİK KALAN NAKİT) */}
+                <div className="bg-emerald-500/10 text-white p-3.5 rounded-xl border border-emerald-500/40 flex items-center justify-between shadow-sm">
+                  <div>
+                    <span className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
+                      (=) BEKLENEN / KALAN NAKİT KASA:
+                    </span>
+                    <p className="text-[11px] text-gray-300 font-medium">Giderler & faturalar düşüldükten sonra kalan tutar</p>
+                  </div>
+                  <span className="text-xl font-black text-emerald-400">
+                    {formatCurrency(reg.expectedCash)}
+                  </span>
+                </div>
+
+                {/* 7. Actual Counted Cash & Quick Sync Button */}
+                <div className="bg-[#0d1117] p-3 rounded-xl border border-[#30363d] space-y-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <label className="block text-xs font-bold text-white uppercase">
+                      (Fiili) Sayılan Kasa Tutarı *
+                    </label>
+                    {!isClosed && (
+                      <button
+                        type="button"
+                        onClick={handleSyncToActualCash}
+                        className="text-xs text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
+                      >
+                        Kalan Nakiti Yaz ({formatCurrency(reg.expectedCash)})
+                      </button>
+                    )}
+                  </div>
+
+                  <SmartMoneyInput
+                    value={currentEntry.actualCashInHand}
+                    disabled={isClosed}
+                    onChange={(val) =>
+                      onUpdateEntry({
+                        ...currentEntry,
+                        actualCashInHand: val,
+                        updatedAt: new Date().toISOString(),
+                      })
+                    }
+                    placeholder="Fiziki sayılan kasa..."
+                    className="px-3 py-1.5 text-base font-bold text-white focus:border-orange-500 disabled:opacity-60"
+                  />
+                </div>
+              </div>
+
+              {/* 8. Kasa Denkliği Durumu */}
+              <div
+                className={`p-3 rounded-xl border text-center transition ${
+                  reg.isCashBalanced
+                    ? 'bg-emerald-500/10 border-emerald-500/40 text-emerald-400 font-bold'
+                    : 'bg-rose-500/10 border-rose-500/40 text-rose-400 font-bold'
+                }`}
+              >
+                <div className="text-xs font-bold uppercase tracking-wider">
+                  {reg.isCashBalanced
+                    ? '✓ KASA TAM DENK (FARK YOK)'
+                    : reg.cashDifference > 0
+                    ? `⚠ KASA FAZLASI: +${formatCurrency(reg.cashDifference)}`
+                    : `⚠ KASA AÇIĞI: ${formatCurrency(reg.cashDifference)}`}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Top: Full Daily Financial Statement Windows (Büyütülmüş Finansal Pencereler) */}
         <div className="bg-[#161b22] rounded-xl border border-[#30363d] p-5 sm:p-6 shadow-lg font-mono space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-[#30363d] gap-2">
@@ -495,7 +820,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
 
                 {reg.accountCashDeposits > 0 && (
                   <div className="flex items-center justify-between text-gray-400">
-                    <span>(+) Ana Kasa Girişleri:</span>
+                    <span>(+) Kasa Para Girişi:</span>
                     <span className="font-mono text-emerald-400 font-bold">+{formatCurrency(reg.accountCashDeposits)}</span>
                   </div>
                 )}
@@ -506,11 +831,20 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                 </div>
 
                 {reg.accountCashWithdrawals > 0 && (
-                  <div className="flex items-center justify-between text-gray-400">
-                    <span>(-) Ana Kasa Çıkışları:</span>
-                    <span className="font-mono text-amber-400 font-bold">-{formatCurrency(reg.accountCashWithdrawals)}</span>
+                  <div className="flex items-center justify-between text-gray-500 text-[11px] pl-2">
+                    <span>↳ Kasa Para Çekme:</span>
+                    <span className="font-mono text-amber-400/80">-{formatCurrency(reg.accountCashWithdrawals)}</span>
                   </div>
                 )}
+
+                {/* Kalan (Net Kalması Gereken Nakit) */}
+                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-white font-bold my-1">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="text-emerald-300 text-xs font-bold">(=) Kalan</span>
+                    <span className="text-[10px] text-gray-400 font-normal">(Net Kalması Gereken Nakit):</span>
+                  </div>
+                  <span className="font-mono text-emerald-400 text-sm font-extrabold">{formatCurrency(reg.expectedCash)}</span>
+                </div>
               </div>
 
               <div className="pt-2.5 border-t border-[#30363d] space-y-2">
@@ -693,7 +1027,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                         className="inline-flex items-center space-x-1.5 px-3.5 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white font-bold text-xs rounded-lg shadow-md transition cursor-pointer shrink-0"
                       >
                         <Wallet className="w-3.5 h-3.5" />
-                        <span>6. Ana Kasa & Banknot Sayımına Geç</span>
+                        <span>6. Kasa & Banknot Sayımına Geç</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     )}

@@ -165,7 +165,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         ? accounts.find((a) => a.type === 'credit_card' || a.type === 'bank') || accounts[0]
         : exp.paidBy === 'Banka Kartı'
         ? accounts.find((a) => a.type === 'bank') || accounts[0]
-        : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.id === 'ana-kasa' || a.isDefault) || accounts[0]);
+        : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.isDefault) || accounts[0]);
 
     setEditingExpense(exp);
     const existsInList = categories.some((c) => c.name === exp.category);

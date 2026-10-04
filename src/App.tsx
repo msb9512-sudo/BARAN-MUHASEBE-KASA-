@@ -117,15 +117,12 @@ export function App() {
     document.body.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }, [activeTab]);
 
-  // Find Main Cash Account (Ana Kasa) - Requirement 5: Always Ana Kasa, never Gunluk Kasa
-  const mainAccount = appState.accounts?.find(
-    (a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')
-  ) || appState.accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa') || appState.accounts?.[0];
-
-  // Günlük İşleyiş Kasası (id: 'gunluk-kasa')
+  // Find Main Cash Account (Günlük İşleyiş Kasası)
   const gunlukKasaAccount = appState.accounts?.find(
     (a) => a.id === 'gunluk-kasa'
-  );
+  ) || appState.accounts?.find((a) => a.isDefault || a.type === 'cash') || appState.accounts?.[0];
+
+  const mainAccount = gunlukKasaAccount;
 
   // Ensure current entry exists for selected date
   const getCurrentEntry = (date: string): DailyEntry => {

@@ -251,7 +251,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         let targetAccount = accounts.find((a) => a.id === exp.accountId);
 
         if (isCreditOrCard) {
-          if (!targetAccount || targetAccount.type === 'cash' || targetAccount.id === 'ana-kasa') {
+          if (!targetAccount || targetAccount.type === 'cash') {
             targetAccount =
               accounts.find((a) => a.type === 'credit_card') ||
               accounts.find((a) => a.type === 'bank') ||
@@ -261,14 +261,14 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           targetAccount =
             exp.paidBy === 'Banka'
               ? accounts.find((a) => a.type === 'bank') || accounts[0]
-              : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.id === 'ana-kasa' || a.isDefault) || accounts[0];
+              : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.isDefault) || accounts[0];
         }
 
         items.push({
           id: `exp-${exp.id}`,
           date: exp.date,
-          accountId: targetAccount ? targetAccount.id : isCreditOrCard ? 'kredi-karti' : 'ana-kasa',
-          accountName: targetAccount ? targetAccount.name : isCreditOrCard ? 'Kredi / Banka Kartı' : 'Ana Kasa',
+          accountId: targetAccount ? targetAccount.id : isCreditOrCard ? 'kredi-karti' : 'gunluk-kasa',
+          accountName: targetAccount ? targetAccount.name : isCreditOrCard ? 'Kredi / Banka Kartı' : 'Günlük İşleyiş Kasası',
           type: 'expense',
           amount: exp.amount,
           category: exp.category || 'Gider',
@@ -732,9 +732,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 currentBalance: 0,
               };
 
-              // Requirement 5: "VARSAYILAN KASA" etiketi sadece Ana Kasa'da görünsün, Günlük Kasa'da görünmesin.
-              const isMainCash = (acc.isDefault || acc.id === 'ana-kasa') && acc.id !== 'gunluk-kasa';
-              const isGunlukKasa = acc.id === 'gunluk-kasa';
+              const isGunlukKasa = acc.id === 'gunluk-kasa' || acc.isDefault;
 
               return (
                 <div
@@ -756,8 +754,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                             <h4 className="text-base font-bold text-white tracking-tight">
                               {acc.name}
                             </h4>
-                            {isMainCash && (
-                              <span className="px-2 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 text-[10px] font-mono font-bold">
+                            {isGunlukKasa && (
+                              <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-[10px] font-mono font-bold">
                                 VARSAYILAN KASA
                               </span>
                             )}
@@ -779,7 +777,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                        {!isMainCash && !isGunlukKasa && (
+                        {!isGunlukKasa && (
                           <button
                             onClick={() => setDeleteConfirmAccount(acc)}
                             className="p-1.5 text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
@@ -811,7 +809,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     <div className="grid grid-cols-2 gap-2 text-[11px]">
                       <div className="bg-[#12161c] p-2 rounded border border-[#21262d]">
                         <span className="text-gray-400 block text-[10px]">
-                          {isMainCash ? 'Başlangıç Bakiyesi (Avans):' : 'Başlangıç Bakiyesi:'}
+                          {isGunlukKasa ? 'Başlangıç Bakiyesi (Avans):' : 'Başlangıç Bakiyesi:'}
                         </span>
                         <span className="font-semibold text-gray-300">{formatCurrency(bal.initialBalance)}</span>
                       </div>
@@ -832,20 +830,11 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       </div>
                     </div>
 
-                    {isMainCash && !isGunlukKasa && (
-                      <div className="bg-[#0d1117] p-2 rounded border border-orange-500/35 text-[10px] space-y-0.5 text-gray-400 font-sans">
-                        <span className="font-semibold text-orange-400 block">Ana Nakit Kasası</span>
-                        <p className="text-[10px] text-gray-400">
-                          Günlük kapanış farkları ve nakit virmanlar bu hesaba işlenir.
-                        </p>
-                      </div>
-                    )}
-
                     {isGunlukKasa && (
                       <div className="bg-[#0d1117] p-2 rounded border border-emerald-500/35 text-[10px] space-y-0.5 text-gray-400 font-sans">
-                        <span className="font-semibold text-emerald-400 block">Günlük İşleyiş Kasası</span>
+                        <span className="font-semibold text-emerald-400 block">Günlük İşleyiş Kasası (Varsayılan Kasa)</span>
                         <p className="text-[10px] text-gray-400">
-                          Kasa İşlemleri ekranındaki güncel beklenen nakit mevcudunu gösterir.
+                          Kasa İşlemleri ekranındaki güncel beklenen nakit mevcudunu ve işletmenin nakit durumunu gösterir.
                         </p>
                       </div>
                     )}
