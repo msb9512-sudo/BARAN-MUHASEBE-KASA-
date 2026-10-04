@@ -569,6 +569,7 @@ export function calculateAccountBalance(
   let totalExpenses = 0;
 
   transactions.forEach((tx) => {
+    if (tx.category === 'Gün Sonu Kasa Devri') return;
     const amount = Number(tx.amount) || 0;
     if (tx.accountId === account.id || (!account.id && isMainCash && !tx.accountId)) {
       if (tx.type === 'deposit') {

@@ -329,7 +329,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       bankName: acc.bankName || '',
       accountNumber: acc.accountNumber || '',
       initialBalance: acc.initialBalance ? acc.initialBalance.toString() : '',
-      trackingStartDate: acc.trackingStartDate || '',
       color: acc.color || '#3b82f6',
       notes: acc.notes || '',
     });
@@ -354,7 +353,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         bankName: accountFormData.bankName.trim() || undefined,
         accountNumber: accountFormData.accountNumber.trim() || undefined,
         initialBalance: initBal,
-        trackingStartDate: accountFormData.trackingStartDate?.trim() || undefined,
         color: accountFormData.color,
         notes: accountFormData.notes.trim() || undefined,
         updatedAt: new Date().toISOString(),
@@ -367,7 +365,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         bankName: accountFormData.bankName.trim() || undefined,
         accountNumber: accountFormData.accountNumber.trim() || undefined,
         initialBalance: initBal,
-        trackingStartDate: accountFormData.trackingStartDate?.trim() || undefined,
         color: accountFormData.color,
         notes: accountFormData.notes.trim() || undefined,
       });

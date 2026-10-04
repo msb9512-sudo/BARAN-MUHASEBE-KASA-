@@ -440,29 +440,8 @@ export function App() {
     }));
   };
 
-  const handleSaveClosingTransaction = (date: string, closingCarryOver: number, openingCash: number) => {
-    const diff = Math.round((closingCarryOver - openingCash) * 100) / 100;
-    const mainAcc = appState.accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
-    const txId = `closing-tx-${date}`;
-    const newTx: AccountTransaction = {
-      id: txId,
-      accountId: mainAcc?.id || 'ana-kasa',
-      accountName: mainAcc?.name || 'Ana Kasa (Nakit)',
-      type: diff >= 0 ? 'deposit' : 'withdrawal',
-      amount: Math.abs(diff),
-      category: 'Gün Sonu Kasa Devri',
-      description: `${formatDateTR(date)} Gün Sonu Kasa Devri (Kapanış: ${formatCurrency(closingCarryOver)}, Fark: ${diff >= 0 ? '+' : ''}${formatCurrency(diff)})`,
-      date,
-      receiptNo: 'Gün Kapanışı',
-      enteredBy: 'Kasa Sorumlusu',
-      createdAt: new Date().toISOString(),
-    };
-
+  const handleSaveClosingTransaction = (date: string, closingCarryOver: number, _openingCash: number) => {
     setAppState((prev) => {
-      const filtered = (prev.accountTransactions || []).filter((tx) => tx.id !== txId);
-      const updatedTxs = [newTx, ...filtered];
-      saveAccountTransactions(updatedTxs);
-
       const nextDateObj = new Date(date + 'T00:00:00');
       nextDateObj.setDate(nextDateObj.getDate() + 1);
       const nextDateStr = nextDateObj.toISOString().slice(0, 10);
@@ -479,7 +458,6 @@ export function App() {
       return {
         ...prev,
         entries: updatedEntries,
-        accountTransactions: updatedTxs,
       };
     });
   };
