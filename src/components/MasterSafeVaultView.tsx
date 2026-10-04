@@ -73,7 +73,8 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
   const [typeFilter, setTypeFilter] = useState<'all' | 'deposit' | 'withdrawal'>('all');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
 
-  const mainAccount = accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+  const mainAccount = accounts?.find((a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')) || accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa');
+  const gunlukKasaAccount = accounts?.find((a) => a.id === 'gunluk-kasa');
   const reg = currentEntry
     ? calculateDailyRegister(currentEntry, expenses || [], invoices || [], accountTransactions || [], mainAccount)
     : null;
@@ -467,7 +468,7 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
                               const autoDevir = getPreviousDayClosingCarryOver(
                                 currentEntry.date,
                                 allEntries,
-                                mainAccount
+                                gunlukKasaAccount
                               );
                               onUpdateEntry({
                                 ...currentEntry,

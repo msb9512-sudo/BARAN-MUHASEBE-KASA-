@@ -261,7 +261,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
           targetAccount =
             exp.paidBy === 'Banka'
               ? accounts.find((a) => a.type === 'bank') || accounts[0]
-              : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0];
+              : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.id === 'ana-kasa' || a.isDefault) || accounts[0];
         }
 
         items.push({
@@ -732,7 +732,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 currentBalance: 0,
               };
 
-              const isMainCash = acc.isDefault || acc.id === 'ana-kasa' || acc.type === 'cash';
+              // Requirement 5: "VARSAYILAN KASA" etiketi sadece Ana Kasa'da görünsün, Günlük Kasa'da görünmesin.
+              const isMainCash = (acc.isDefault || acc.id === 'ana-kasa') && acc.id !== 'gunluk-kasa';
               const isGunlukKasa = acc.id === 'gunluk-kasa';
 
               return (
@@ -1322,7 +1323,10 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                   </label>
                   <select
                     value={txFormData.accountId || selectedAccountIdForTx}
-                    onChange={(e) => setTxFormData({ ...txFormData, accountId: e.target.value })}
+                    onChange={(e) => {
+                      setSelectedAccountIdForTx(e.target.value);
+                      setTxFormData({ ...txFormData, accountId: e.target.value });
+                    }}
                     className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
                   >
                     {accounts.map((acc) => (

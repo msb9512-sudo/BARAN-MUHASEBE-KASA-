@@ -56,7 +56,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   const [editingExpense, setEditingExpense] = useState<CashExpense | null>(null);
   const [isCustomCategoryMode, setIsCustomCategoryMode] = useState(false);
 
-  const defaultAccount = accounts.find((a) => a.isDefault) || accounts[0] || DEFAULT_ACCOUNTS[0];
+  const gunlukKasa = accounts.find((a) => a.id === 'gunluk-kasa') || DEFAULT_ACCOUNTS[1];
 
   const [formData, setFormData] = useState({
     date: selectedDate,
@@ -64,8 +64,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
     description: '',
     amount: '',
     paidBy: 'Kasa' as ExpensePaymentMethod,
-    accountId: defaultAccount?.id || 'ana-kasa',
-    accountName: defaultAccount?.name || 'Ana Kasa (Nakit)',
+    accountId: gunlukKasa.id,
+    accountName: gunlukKasa.name,
     receiptNo: '',
     enteredBy: 'Kasa Sorumlusu',
     notes: '',
@@ -96,7 +96,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
 
     // Account
     if (accountFilter !== 'all') {
-      const expAccId = exp.accountId || (isCreditCardExpenseMethod(exp.paidBy) ? accounts.find((a) => a.type === 'bank' || a.type === 'credit_card')?.id : defaultAccount?.id);
+      const expAccId = exp.accountId || (isCreditCardExpenseMethod(exp.paidBy) ? accounts.find((a) => a.type === 'bank' || a.type === 'credit_card')?.id : gunlukKasa.id);
       if (expAccId !== accountFilter) return false;
     }
 
@@ -138,7 +138,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
   const totalFilteredAmount = filteredExpenses.reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
   const handleOpenAdd = () => {
-    const defaultAcc = accounts.find((a) => a.isDefault) || accounts[0] || DEFAULT_ACCOUNTS[0];
+    const gunlukKasaAcc = accounts.find((a) => a.id === 'gunluk-kasa') || DEFAULT_ACCOUNTS[1];
     setEditingExpense(null);
     setIsCustomCategoryMode(categories.length === 0);
     setFormData({
@@ -147,8 +147,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       description: '',
       amount: '',
       paidBy: 'Kasa',
-      accountId: defaultAcc?.id || 'ana-kasa',
-      accountName: defaultAcc?.name || 'Ana Kasa (Nakit)',
+      accountId: gunlukKasaAcc.id,
+      accountName: gunlukKasaAcc.name,
       receiptNo: '',
       enteredBy: 'Kasa Sorumlusu',
       notes: '',
@@ -165,7 +165,7 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
         ? accounts.find((a) => a.type === 'credit_card' || a.type === 'bank') || accounts[0]
         : exp.paidBy === 'Banka Kartı'
         ? accounts.find((a) => a.type === 'bank') || accounts[0]
-        : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0]);
+        : accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.id === 'ana-kasa' || a.isDefault) || accounts[0]);
 
     setEditingExpense(exp);
     const existsInList = categories.some((c) => c.name === exp.category);
@@ -176,8 +176,8 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
       description: exp.description,
       amount: exp.amount.toString(),
       paidBy: exp.paidBy,
-      accountId: exp.accountId || matchingAcc?.id || 'ana-kasa',
-      accountName: exp.accountName || matchingAcc?.name || 'Ana Kasa',
+      accountId: exp.accountId || matchingAcc?.id || 'gunluk-kasa',
+      accountName: exp.accountName || matchingAcc?.name || 'Günlük İşleyiş Kasası',
       receiptNo: exp.receiptNo || '',
       enteredBy: exp.enteredBy,
       notes: exp.notes || '',
@@ -696,12 +696,12 @@ export const CashExpensesView: React.FC<CashExpensesViewProps> = ({
                   <button
                     type="button"
                     onClick={() => {
-                      const cashAcc = accounts.find((a) => a.type === 'cash' || a.id === 'ana-kasa') || accounts[0];
+                      const cashAcc = accounts.find((a) => a.id === 'gunluk-kasa') || accounts.find((a) => a.type === 'cash') || accounts[0];
                       setFormData({
                         ...formData,
                         paidBy: 'Kasa',
-                        accountId: cashAcc ? cashAcc.id : 'ana-kasa',
-                        accountName: cashAcc ? cashAcc.name : 'Ana Kasa (Nakit)',
+                        accountId: cashAcc ? cashAcc.id : 'gunluk-kasa',
+                        accountName: cashAcc ? cashAcc.name : 'Günlük İşleyiş Kasası',
                       });
                     }}
                     className={`p-2.5 rounded-lg border text-left flex flex-col justify-between transition cursor-pointer ${

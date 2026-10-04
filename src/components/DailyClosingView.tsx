@@ -70,7 +70,8 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   const [isCarryOverModalOpen, setIsCarryOverModalOpen] = useState(false);
   const [carryOverInput, setCarryOverInput] = useState('');
 
-  const mainAccount = accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+  const mainAccount = accounts?.find((a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')) || accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa');
+  const gunlukKasaAccount = accounts?.find((a) => a.id === 'gunluk-kasa');
   const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const warnings = auditDailyEntry(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
@@ -433,7 +434,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                               const autoDevir = getPreviousDayClosingCarryOver(
                                 currentEntry.date,
                                 allEntries,
-                                mainAccount
+                                gunlukKasaAccount
                               );
                               onUpdateEntry({
                                 ...currentEntry,

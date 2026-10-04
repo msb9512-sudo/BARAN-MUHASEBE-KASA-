@@ -117,9 +117,14 @@ export function App() {
     document.body.scrollTo({ top: 0, left: 0, behavior: 'smooth' });
   }, [activeTab]);
 
-  // Find Main Cash Account (Ana Kasa)
+  // Find Main Cash Account (Ana Kasa) - Requirement 5: Always Ana Kasa, never Gunluk Kasa
   const mainAccount = appState.accounts?.find(
-    (a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash'
+    (a) => a.id === 'ana-kasa' || (a.isDefault && a.id !== 'gunluk-kasa')
+  ) || appState.accounts?.find((a) => a.type === 'cash' && a.id !== 'gunluk-kasa') || appState.accounts?.[0];
+
+  // Günlük İşleyiş Kasası (id: 'gunluk-kasa')
+  const gunlukKasaAccount = appState.accounts?.find(
+    (a) => a.id === 'gunluk-kasa'
   );
 
   // Ensure current entry exists for selected date
@@ -132,7 +137,7 @@ export function App() {
         const autoDevir = getPreviousDayClosingCarryOver(
           date,
           appState.entries,
-          mainAccount
+          gunlukKasaAccount
         );
         if (entry.openingCash !== autoDevir) {
           entry = {
@@ -148,7 +153,7 @@ export function App() {
     const autoOpeningCash = getPreviousDayClosingCarryOver(
       date,
       appState.entries,
-      mainAccount
+      gunlukKasaAccount
     );
 
     return {
@@ -403,9 +408,32 @@ export function App() {
     setAppState((prev) => {
       const updatedAccounts = (prev.accounts || []).map((a) => (a.id === updated.id ? updated : a));
       saveAccounts(updatedAccounts);
+
+      let updatedEntries = { ...prev.entries };
+
+      // 1) AVANS: Kullanıcı Günlük Kasa avansını sonradan değiştirirse, henüz kapanmamış ilk günün açılışına yansısın.
+      if (updated.id === 'gunluk-kasa') {
+        const newAvans = Number(updated.initialBalance) || 0;
+        const sortedEntries: DailyEntry[] = (Object.values(updatedEntries) as DailyEntry[])
+          .filter((e): e is DailyEntry => Boolean(e && e.date))
+          .sort((a, b) => a.date.localeCompare(b.date));
+
+        for (const entry of sortedEntries) {
+          const prevClosed = sortedEntries.some((e) => e.date < entry.date && e.status === 'closed');
+          if (!prevClosed && entry.status !== 'closed' && !entry.isOpeningCashManual) {
+            updatedEntries[entry.date] = {
+              ...entry,
+              openingCash: newAvans,
+            };
+            break;
+          }
+        }
+      }
+
       return {
         ...prev,
         accounts: updatedAccounts,
+        entries: updatedEntries,
       };
     });
   };

@@ -466,6 +466,15 @@ export function loadAccounts(): FinancialAccount[] {
     if (!hasGunlukKasa) {
       parsed.splice(1, 0, DEFAULT_ACCOUNTS[1]);
     }
+    // Ensure gunluk-kasa is never marked as default, and ana-kasa is default
+    parsed.forEach((a) => {
+      if (a.id === 'gunluk-kasa') {
+        a.isDefault = false;
+      }
+      if (a.id === 'ana-kasa') {
+        a.isDefault = true;
+      }
+    });
     saveAccounts(parsed);
     return parsed;
   } catch (e) {
@@ -522,9 +531,20 @@ export function calculateAccountBalance(
   invoices?: Invoice[]
 ): AccountBalanceSummary {
   const initialBalance = Number(account.initialBalance) || 0;
-  const isMainCash = account.type === 'cash' || account.isDefault || account.id === 'ana-kasa';
+  const isAnaKasa = account.id === 'ana-kasa' || (account.isDefault && account.id !== 'gunluk-kasa');
 
-  // Günlük İşleyiş Kasası (id: 'gunluk-kasa')
+  // Helper to check if a transaction is an automated daily closing / devir record
+  const isDailyClosingTx = (tx: AccountTransaction) =>
+    tx.category === 'Gün Sonu Kasa Devri' ||
+    tx.category === 'Kasa Devri' ||
+    tx.category === 'Otomatik Kasa Devri' ||
+    tx.description?.toLowerCase().includes('kasa devri') ||
+    tx.description?.toLowerCase().includes('gün sonu kasa devri') ||
+    tx.id?.startsWith('vault-') ||
+    tx.id?.startsWith('closing-tx-') ||
+    tx.id?.startsWith('safe-transfer-');
+
+  // 1 & 2) Günlük İşleyiş Kasası (id: 'gunluk-kasa')
   if (account.id === 'gunluk-kasa') {
     const entryList: DailyEntry[] = entries
       ? (Array.isArray(entries) ? entries : Object.values(entries))
@@ -536,32 +556,95 @@ export function calculateAccountBalance(
 
     if (activeEntry) {
       const reg = calculateDailyRegister(activeEntry, expenses, invList, transactions, account);
+
+      // Son DailyEntry kaydının tarihinden SONRA yapılmış tüm gunluk-kasa işlemleri
+      let postDeposits = 0;
+      let postWithdrawals = 0;
+      let postTransfersIn = 0;
+      let postTransfersOut = 0;
+
+      transactions.forEach((tx) => {
+        if (isDailyClosingTx(tx)) return;
+        if (tx.date <= activeEntry.date) return; // Zaten o günde veya önceki günlerde işlendi
+
+        const amt = Number(tx.amount) || 0;
+        if (tx.type === 'deposit' && tx.accountId === 'gunluk-kasa') {
+          postDeposits += amt;
+        } else if (tx.type === 'withdrawal' && tx.accountId === 'gunluk-kasa') {
+          postWithdrawals += amt;
+        } else if (tx.type === 'transfer') {
+          if (tx.toAccountId === 'gunluk-kasa') {
+            postTransfersIn += amt;
+          }
+          if (tx.fromAccountId === 'gunluk-kasa') {
+            postTransfersOut += amt;
+          }
+        }
+      });
+
+      const totalDeposits = reg.cashSales + reg.accountCashDeposits + postDeposits;
+      const totalWithdrawals = reg.cashWithdrawals + reg.accountCashWithdrawals + postWithdrawals;
+      const totalTransfersIn = reg.accountCashDeposits + postTransfersIn;
+      const totalTransfersOut = reg.accountCashWithdrawals + postTransfersOut;
+      const totalExpenses = reg.cashExpenses + reg.invoiceCashPayments;
+      const totalInflow = reg.openingCash + reg.cashSales + reg.accountCashDeposits + postDeposits + postTransfersIn;
+      const totalOutflow = reg.totalCashOutflow + postWithdrawals + postTransfersOut;
+      const currentBalance = Math.round((reg.expectedCash + postDeposits + postTransfersIn - postWithdrawals - postTransfersOut) * 100) / 100;
+
       return {
         initialBalance: reg.openingCash,
-        totalDeposits: reg.cashSales + reg.accountCashDeposits,
-        totalWithdrawals: reg.cashWithdrawals + reg.accountCashWithdrawals,
-        totalTransfersIn: reg.accountCashDeposits,
-        totalTransfersOut: reg.accountCashWithdrawals,
-        totalExpenses: reg.cashExpenses + reg.invoiceCashPayments,
-        totalInflow: reg.openingCash + reg.cashSales + reg.accountCashDeposits,
-        totalOutflow: reg.totalCashOutflow,
-        currentBalance: Math.round(reg.expectedCash * 100) / 100,
+        totalDeposits,
+        totalWithdrawals,
+        totalTransfersIn,
+        totalTransfersOut,
+        totalExpenses,
+        totalInflow,
+        totalOutflow,
+        currentBalance,
       };
     }
 
+    // Hiç DailyEntry yoksa
+    let totalDeposits = 0;
+    let totalWithdrawals = 0;
+    let totalTransfersIn = 0;
+    let totalTransfersOut = 0;
+
+    transactions.forEach((tx) => {
+      if (isDailyClosingTx(tx)) return;
+      const amt = Number(tx.amount) || 0;
+      if (tx.type === 'deposit' && tx.accountId === 'gunluk-kasa') {
+        totalDeposits += amt;
+      } else if (tx.type === 'withdrawal' && tx.accountId === 'gunluk-kasa') {
+        totalWithdrawals += amt;
+      } else if (tx.type === 'transfer') {
+        if (tx.toAccountId === 'gunluk-kasa') {
+          totalTransfersIn += amt;
+        }
+        if (tx.fromAccountId === 'gunluk-kasa') {
+          totalTransfersOut += amt;
+        }
+      }
+    });
+
+    const totalInflow = initialBalance + totalDeposits + totalTransfersIn;
+    const totalOutflow = totalWithdrawals + totalTransfersOut;
+    const currentBalance = Math.round((totalInflow - totalOutflow) * 100) / 100;
+
     return {
       initialBalance,
-      totalDeposits: 0,
-      totalWithdrawals: 0,
-      totalTransfersIn: 0,
-      totalTransfersOut: 0,
+      totalDeposits,
+      totalWithdrawals,
+      totalTransfersIn,
+      totalTransfersOut,
       totalExpenses: 0,
-      totalInflow: initialBalance,
-      totalOutflow: 0,
-      currentBalance: initialBalance,
+      totalInflow,
+      totalOutflow,
+      currentBalance,
     };
   }
 
+  // Diğer hesaplar (Ana Kasa, Bankalar, Kredi Kartları)
   let totalDeposits = 0;
   let totalWithdrawals = 0;
   let totalTransfersIn = 0;
@@ -569,9 +652,11 @@ export function calculateAccountBalance(
   let totalExpenses = 0;
 
   transactions.forEach((tx) => {
-    if (tx.category === 'Gün Sonu Kasa Devri') return;
+    // 4) ESKİ KAYITLAR: Eski "Gün Sonu Kasa Devri" işlemleri ve otomatik kasa devirleri hesaba katılmasın!
+    if (isDailyClosingTx(tx)) return;
+
     const amount = Number(tx.amount) || 0;
-    if (tx.accountId === account.id || (!account.id && isMainCash && !tx.accountId)) {
+    if (tx.accountId === account.id || (!tx.accountId && isAnaKasa)) {
       if (tx.type === 'deposit') {
         totalDeposits += amount;
       } else if (tx.type === 'withdrawal') {
@@ -588,6 +673,13 @@ export function calculateAccountBalance(
     if (!exp.isActive) return;
     const amount = Number(exp.amount) || 0;
 
+    // 3) ÇİFT GİDER: Kasadan ödenen nakit günlük giderler (paidBy Kasa/Nakit) SADECE Günlük Kasa'dan düşsün.
+    // Ana Kasa bakiyesinden DÜŞMESİN. exp.accountId === 'ana-kasa' olsa bile nakit giderler Ana Kasa'dan sayılmaz!
+    const isCashExpense = isCashExpenseMethod(exp.paidBy);
+    if (isAnaKasa && isCashExpense) {
+      return;
+    }
+
     if (exp.accountId === account.id) {
       totalExpenses += amount;
     } else if (!exp.accountId) {
@@ -599,18 +691,8 @@ export function calculateAccountBalance(
     }
   });
 
-  if (isMainCash && masterSafe?.transactions) {
-    masterSafe.transactions.forEach((st) => {
-      if (st.source === 'daily_closing' && st.type === 'deposit') {
-        const alreadyInTxs = transactions.some(
-          (tx) => tx.id === `vault-${st.id}` || (tx.type === 'deposit' && tx.amount === st.amount && tx.date === st.date)
-        );
-        if (!alreadyInTxs) {
-          totalDeposits += Number(st.amount) || 0;
-        }
-      }
-    });
-  }
+  // 4) ESKİ KAYITLAR: masterSafe 'daily_closing' kaynaklı otomatik deposit'ler Ana Kasa'ya hiçbir şekilde SAYILMASIN!
+  // Ana Kasa sadece başlangıç bakiyesi + kullanıcının elle yaptığı para yatır/çek ve virmanlar ile değişir.
 
   const totalInflow = initialBalance + totalDeposits + totalTransfersIn;
   const totalOutflow = totalWithdrawals + totalTransfersOut + totalExpenses;

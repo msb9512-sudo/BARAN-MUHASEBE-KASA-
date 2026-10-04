@@ -270,12 +270,13 @@ export function calculateDailyRegister(
  * Her günün openingCash (o günün açılış avansı) değeri:
  * - Bir önceki günün DailyEntry kaydının closingCarryOver (gün sonu kapanışta kalan tutar) değerini otomatik devralır.
  * - Gün N'in openingCash'i = Gün N-1'in closingCarryOver'ı.
- * - İlk gün (hiç önceki kayıt yoksa) openingCash, Ana Kasa hesabının initialBalance'ı ile başlar (bir defaya mahsus).
+ * - İlk gün (hiç önceki kayıt yoksa) openingCash, Günlük İşleyiş Kasası (id: 'gunluk-kasa') hesabının
+ *   "Başlangıç Bakiyesi (Avans)" değeri ile başlar.
  */
 export function getPreviousDayClosingCarryOver(
   date: string,
   entries: DailyEntry[] | Record<string, DailyEntry> = [],
-  mainAccount?: FinancialAccount
+  gunlukKasaAccount?: FinancialAccount
 ): number {
   const entryList: DailyEntry[] = Array.isArray(entries) ? entries : Object.values(entries || {});
 
@@ -296,8 +297,30 @@ export function getPreviousDayClosingCarryOver(
     return Number(prev.actualCashInHand) || Number(prev.openingCash) || 0;
   }
 
-  // İlk gün (hiç önceki kayıt yoksa) openingCash, Ana Kasa hesabının initialBalance'ı ile başlar
-  return Number(mainAccount?.initialBalance) || 0;
+  // İlk gün (hiç önceki kayıt yoksa) openingCash, Günlük Kasa (id: 'gunluk-kasa') initialBalance ile başlar
+  if (gunlukKasaAccount && gunlukKasaAccount.id === 'gunluk-kasa') {
+    return Number(gunlukKasaAccount.initialBalance) || 0;
+  }
+
+  // Fallback: localStorage'dan Günlük Kasa ('gunluk-kasa') başlangıç bakiyesini bul
+  try {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      const raw = localStorage.getItem('restoran_muhasebe_accounts_v1');
+      if (raw) {
+        const accounts: FinancialAccount[] = JSON.parse(raw);
+        const gk = accounts?.find((a) => a.id === 'gunluk-kasa');
+        if (gk) return Number(gk.initialBalance) || 0;
+      }
+    }
+  } catch {
+    // ignore
+  }
+
+  if (gunlukKasaAccount) {
+    return Number(gunlukKasaAccount.initialBalance) || 0;
+  }
+
+  return 0;
 }
 
 /**
