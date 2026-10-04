@@ -3,6 +3,7 @@ import {
   loadAppState,
   saveAppState,
   saveAccounts,
+  saveAccountTransactions,
   resetToSampleData,
   resetAllFinancialData,
   resetSingleDayData,
@@ -43,8 +44,8 @@ import { SettingsModal } from './components/SettingsModal';
 import { SettingsView, SettingsSectionId } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { Sidebar } from './components/Sidebar';
-import { getAnaKasaBalanceBeforeDate } from './utils/calculations';
-import { getTodayIsoDate } from './utils/formatters';
+import { getPreviousDayClosingCarryOver } from './utils/calculations';
+import { getTodayIsoDate, formatCurrency, formatDateTR } from './utils/formatters';
 import { loadThemeSettings, applyThemeToDOM } from './utils/theme';
 
 export function App() {
@@ -125,15 +126,12 @@ export function App() {
   const getCurrentEntry = (date: string): DailyEntry => {
     let entry = appState.entries[date];
     if (entry) {
-      // 1) Yeni oluşturulan veya durumu "draft" (açık) olan günlerde openingCash otomatik olarak bu devir fonksiyonundan gelsin.
+      // 1) Yeni oluşturulan veya durumu "draft" (açık) olan günlerde openingCash otomatik olarak bir önceki günün closingCarryOver değerinden gelsin.
       // 2) KAPALI (status: 'closed') günlerin kayıtlı openingCash değerine DOKUNMA, eski kapanışlar aynen kalsın.
-      if (entry.status !== 'closed' && !entry.isOpeningCashManual && mainAccount) {
-        const autoDevir = getAnaKasaBalanceBeforeDate(
+      if (entry.status !== 'closed' && !entry.isOpeningCashManual) {
+        const autoDevir = getPreviousDayClosingCarryOver(
           date,
           appState.entries,
-          appState.expenses,
-          appState.invoices,
-          appState.accountTransactions || [],
           mainAccount
         );
         if (entry.openingCash !== autoDevir) {
@@ -147,12 +145,9 @@ export function App() {
     }
 
     // Default clean entry if date is new
-    const autoOpeningCash = getAnaKasaBalanceBeforeDate(
+    const autoOpeningCash = getPreviousDayClosingCarryOver(
       date,
       appState.entries,
-      appState.expenses,
-      appState.invoices,
-      appState.accountTransactions || [],
       mainAccount
     );
 
@@ -445,6 +440,62 @@ export function App() {
     }));
   };
 
+  const handleSaveClosingTransaction = (date: string, closingCarryOver: number, openingCash: number) => {
+    const diff = Math.round((closingCarryOver - openingCash) * 100) / 100;
+    const mainAcc = appState.accounts?.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
+    const txId = `closing-tx-${date}`;
+    const newTx: AccountTransaction = {
+      id: txId,
+      accountId: mainAcc?.id || 'ana-kasa',
+      accountName: mainAcc?.name || 'Ana Kasa (Nakit)',
+      type: diff >= 0 ? 'deposit' : 'withdrawal',
+      amount: Math.abs(diff),
+      category: 'Gün Sonu Kasa Devri',
+      description: `${formatDateTR(date)} Gün Sonu Kasa Devri (Kapanış: ${formatCurrency(closingCarryOver)}, Fark: ${diff >= 0 ? '+' : ''}${formatCurrency(diff)})`,
+      date,
+      receiptNo: 'Gün Kapanışı',
+      enteredBy: 'Kasa Sorumlusu',
+      createdAt: new Date().toISOString(),
+    };
+
+    setAppState((prev) => {
+      const filtered = (prev.accountTransactions || []).filter((tx) => tx.id !== txId);
+      const updatedTxs = [newTx, ...filtered];
+      saveAccountTransactions(updatedTxs);
+
+      const nextDateObj = new Date(date + 'T00:00:00');
+      nextDateObj.setDate(nextDateObj.getDate() + 1);
+      const nextDateStr = nextDateObj.toISOString().slice(0, 10);
+      let updatedEntries = { ...prev.entries };
+
+      if (updatedEntries[nextDateStr] && updatedEntries[nextDateStr].status !== 'closed' && !updatedEntries[nextDateStr].isOpeningCashManual) {
+        updatedEntries[nextDateStr] = {
+          ...updatedEntries[nextDateStr],
+          openingCash: closingCarryOver,
+          updatedAt: new Date().toISOString(),
+        };
+      }
+
+      return {
+        ...prev,
+        entries: updatedEntries,
+        accountTransactions: updatedTxs,
+      };
+    });
+  };
+
+  const handleRemoveClosingTransaction = (date: string) => {
+    const txId = `closing-tx-${date}`;
+    setAppState((prev) => {
+      const updatedTxs = (prev.accountTransactions || []).filter((tx) => tx.id !== txId);
+      saveAccountTransactions(updatedTxs);
+      return {
+        ...prev,
+        accountTransactions: updatedTxs,
+      };
+    });
+  };
+
   // Settings & Profile Handlers
   const handleUpdatePosDevices = (devices: PosDevice[]) => {
     setAppState((prev) => ({ ...prev, posDevices: devices }));
@@ -638,6 +689,8 @@ export function App() {
               accountTransactions={appState.accountTransactions || []}
               allEntries={appState.entries}
               onTransferToMasterSafe={handleTransferToMasterSafe}
+              onSaveClosingTransaction={handleSaveClosingTransaction}
+              onRemoveClosingTransaction={handleRemoveClosingTransaction}
               onOpenBossReport={() => setIsBossReportOpen(true)}
               onNavigate={(tab) => setActiveTab(tab)}
             />

@@ -23,7 +23,7 @@ import {
 import confetti from 'canvas-confetti';
 import { DailyEntry, CashExpense, Invoice, TabType, MasterSafeState, BanknoteCounts, FinancialAccount, AccountTransaction } from '../types';
 import { formatCurrency, formatDateTR, formatDateWithDayTR, parseNumberInput } from '../utils/formatters';
-import { calculateDailyRegister, auditDailyEntry, getAnaKasaBalanceBeforeDate } from '../utils/calculations';
+import { calculateDailyRegister, auditDailyEntry, getPreviousDayClosingCarryOver } from '../utils/calculations';
 import { exportDailyRegisterToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
 
@@ -43,6 +43,8 @@ interface DailyClosingViewProps {
     enteredBy: string;
     description: string;
   }) => void;
+  onSaveClosingTransaction?: (date: string, closingCarryOver: number, openingCash: number) => void;
+  onRemoveClosingTransaction?: (date: string) => void;
   onOpenBossReport: () => void;
   onNavigate?: (tab: TabType) => void;
 }
@@ -57,6 +59,8 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   accountTransactions = [],
   allEntries = [],
   onTransferToMasterSafe,
+  onSaveClosingTransaction,
+  onRemoveClosingTransaction,
   onOpenBossReport,
   onNavigate,
 }) => {
@@ -73,15 +77,20 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   const isClosed = currentEntry.status === 'closed';
 
   const finalizeClosing = (carryOver?: number, diff?: number) => {
+    const finalCarryOver = carryOver !== undefined ? carryOver : reg.expectedCash;
+    const finalDiff = diff !== undefined ? diff : Math.round((finalCarryOver - reg.openingCash) * 100) / 100;
+
     onUpdateEntry({
       ...currentEntry,
       status: 'closed',
-      closingCarryOver: carryOver,
-      carryOverDifference: diff,
+      closingCarryOver: finalCarryOver,
+      carryOverDifference: finalDiff,
       closedAt: new Date().toISOString(),
       closedBy: accountantName.trim() || 'Muhasebe Sorumlusu',
       updatedAt: new Date().toISOString(),
     });
+
+    onSaveClosingTransaction?.(currentEntry.date, finalCarryOver, reg.openingCash);
 
     // Trigger celebration confetti
     try {
@@ -103,8 +112,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
       if (!confirmClose) return;
     }
 
-    // 3) Fiili sayılan kasa ile beklenen kasa tutuyorsa hiçbir şey sorma
-    // Fark varsa küçük pencere aç: Yarına devredecek tutar kutusu
+    // Fiili sayılan kasa ile beklenen kasa tutuyorsa
     const hasCashDifference = Math.abs(reg.cashDifference) >= 0.01;
     if (hasCashDifference) {
       setCarryOverInput(reg.expectedCash.toString());
@@ -135,6 +143,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
         carryOverDifference: undefined,
         updatedAt: new Date().toISOString(),
       });
+      onRemoveClosingTransaction?.(currentEntry.date);
     }
   };
 
@@ -421,12 +430,9 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                           <button
                             type="button"
                             onClick={() => {
-                              const autoDevir = getAnaKasaBalanceBeforeDate(
+                              const autoDevir = getPreviousDayClosingCarryOver(
                                 currentEntry.date,
                                 allEntries,
-                                expenses,
-                                invoices,
-                                accountTransactions,
                                 mainAccount
                               );
                               onUpdateEntry({

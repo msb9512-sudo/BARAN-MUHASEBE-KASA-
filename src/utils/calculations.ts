@@ -187,37 +187,45 @@ export function calculateDailyRegister(
   const invoiceCashPayments = getDailyInvoiceCashPayments(invoices, dailyEntry.date);
   const cashWithdrawals = getDailyCashWithdrawals(dailyEntry);
 
-  // Bugünün Ana Kasa para girişleri ve çıkışları
-  let accountCashDeposits = 0;
-  let accountCashWithdrawals = 0;
-  const mainId = mainAccount?.id || 'ana-kasa';
+  // Bugünün Günlük Kasa virmanları (para girişleri ve çıkışları)
+  let gunlukKasaTransferIn = 0;
+  let gunlukKasaTransferOut = 0;
 
   if (accountTransactions && accountTransactions.length > 0) {
     accountTransactions.forEach((tx) => {
       if (tx.date !== dailyEntry.date) return;
-      // Kasa devri / vault transfers hariç tutulur (nakit satış zaten otomatik sayılıyor)
+      // Kasa devri / vault transfers hariç tutulur
       const isDailyClosing =
         tx.category === 'Gün Sonu Kasa Devri' ||
         tx.category === 'Kasa Devri' ||
         tx.id?.startsWith('vault-') ||
+        tx.id?.startsWith('closing-tx-') ||
         tx.id?.startsWith('safe-transfer-');
       if (isDailyClosing) return;
 
-      if (tx.type === 'deposit' && (tx.accountId === mainId || (!mainAccount && !tx.accountId))) {
-        accountCashDeposits += Number(tx.amount) || 0;
-      } else if (tx.type === 'transfer' && tx.toAccountId === mainId) {
-        accountCashDeposits += Number(tx.amount) || 0;
-      } else if (tx.type === 'withdrawal' && (tx.accountId === mainId || (!mainAccount && !tx.accountId))) {
-        accountCashWithdrawals += Number(tx.amount) || 0;
-      } else if (tx.type === 'transfer' && tx.fromAccountId === mainId) {
-        accountCashWithdrawals += Number(tx.amount) || 0;
+      const amt = Number(tx.amount) || 0;
+
+      // Günlük Kasa'ya gelen virmanlar ('gunluk-kasa' hedeflenen transferler veya direkt yatırılanlar)
+      if (tx.type === 'transfer' && tx.toAccountId === 'gunluk-kasa') {
+        gunlukKasaTransferIn += amt;
+      } else if (tx.type === 'deposit' && tx.accountId === 'gunluk-kasa') {
+        gunlukKasaTransferIn += amt;
+      }
+
+      // Günlük Kasa'dan giden virmanlar ('gunluk-kasa' kaynaklı transferler veya direkt çekimler)
+      if (tx.type === 'transfer' && tx.fromAccountId === 'gunluk-kasa') {
+        gunlukKasaTransferOut += amt;
+      } else if (tx.type === 'withdrawal' && tx.accountId === 'gunluk-kasa') {
+        gunlukKasaTransferOut += amt;
       }
     });
   }
 
-  const totalCashOutflow = cashExpenses + invoiceCashPayments + cashWithdrawals;
-  // beklenenKasa = devir + nakit satış + o günkü Ana Kasa girişleri - kasa çıkışları - o günkü Ana Kasa çıkışları.
-  const expectedCash = openingCash + cashSales + accountCashDeposits - totalCashOutflow - accountCashWithdrawals;
+  const accountCashDeposits = gunlukKasaTransferIn;
+  const accountCashWithdrawals = gunlukKasaTransferOut;
+  const totalCashOutflow = cashExpenses + invoiceCashPayments + cashWithdrawals + gunlukKasaTransferOut;
+  // Gün sonu hesaplanan kasa = openingCash + cashSales - cashExpenses - cashInvoicePayments - cashWithdrawals + (o gün Günlük Kasa'ya gelen virmanlar) - (o gün Günlük Kasa'dan giden virmanlar)
+  const expectedCash = openingCash + cashSales + gunlukKasaTransferIn - totalCashOutflow;
   const actualCashInHand = Number(dailyEntry.actualCashInHand) || 0;
   const cashDifference = actualCashInHand - expectedCash;
   const isCashBalanced = Math.abs(cashDifference) < 0.01;
@@ -255,217 +263,41 @@ export function calculateDailyRegister(
   };
 }
 
+
+
 /**
- * Calculates the complete carry-over chain for Ana Kasa from trackingStartDate.
- * Devir zinciri: Takip başlangıç tarihinden itibaren günleri sırala.
- * Her gün için:
- *   açılış = (ilk gün ? başlangıç bakiyesi : bir önceki günün kapanışı)
- *   beklenen = açılış + nakit satış + girişler - çıkışlar
- *   kapanış = day.closingCarryOver tanımlıysa o, değilse beklenen
- * Ana Kasa bakiyesi ve bir sonraki günün devri bu zincirden hesaplanır.
+ * Zincirleme (chain) devir mantığı:
+ * Her günün openingCash (o günün açılış avansı) değeri:
+ * - Bir önceki günün DailyEntry kaydının closingCarryOver (gün sonu kapanışta kalan tutar) değerini otomatik devralır.
+ * - Gün N'in openingCash'i = Gün N-1'in closingCarryOver'ı.
+ * - İlk gün (hiç önceki kayıt yoksa) openingCash, Ana Kasa hesabının initialBalance'ı ile başlar (bir defaya mahsus).
  */
-export interface AnaKasaChainItem {
-  date: string;
-  openingCash: number;
-  cashSales: number;
-  accountInflows: number;
-  cashExpenses: number;
-  cashInvoicePayments: number;
-  cashWithdrawals: number;
-  accountOutflows: number;
-  totalOutflow: number;
-  expectedCash: number;
-  closingCarryOver?: number;
-  carryOverDifference?: number;
-  finalClosingCash: number;
-}
-
-export interface AnaKasaChainSummary {
-  chain: AnaKasaChainItem[];
-  chainMap: Map<string, AnaKasaChainItem>;
-  currentBalance: number;
-  totalCarryOverDifferences: number;
-  differenceEntries: Array<{
-    date: string;
-    difference: number;
-    closingCarryOver: number;
-    expectedCash: number;
-  }>;
-}
-
-export function getAnaKasaChain(
-  account: FinancialAccount | undefined,
+export function getPreviousDayClosingCarryOver(
+  date: string,
   entries: DailyEntry[] | Record<string, DailyEntry> = [],
-  expenses: CashExpense[] = [],
-  invoices: Invoice[] = [],
-  accountTransactions: AccountTransaction[] = [],
-  upToDate?: string
-): AnaKasaChainSummary {
+  mainAccount?: FinancialAccount
+): number {
   const entryList: DailyEntry[] = Array.isArray(entries) ? entries : Object.values(entries || {});
-  const entryMap = new Map<string, DailyEntry>();
-  entryList.forEach((e) => {
-    if (e && e.date) entryMap.set(e.date, e);
-  });
 
-  const emptyResult: AnaKasaChainSummary = {
-    chain: [],
-    chainMap: new Map(),
-    currentBalance: Number(account?.initialBalance) || 0,
-    totalCarryOverDifferences: 0,
-    differenceEntries: [],
-  };
+  // date'den önceki günleri bul ve tarihe göre azalan (en yeniden en eskiye) sırala
+  const prevEntries = entryList
+    .filter((e) => e && e.date && e.date < date)
+    .sort((a, b) => b.date.localeCompare(a.date));
 
-  if (!account || !account.trackingStartDate) {
-    return emptyResult;
+  if (prevEntries.length > 0) {
+    const prev = prevEntries[0];
+    if (prev.closingCarryOver !== undefined && prev.closingCarryOver !== null) {
+      return Number(prev.closingCarryOver) || 0;
+    }
+    // Önceki kayıt varsa ama closingCarryOver henüz atanmamışsa
+    if (prev.status === 'closed' && prev.actualCashInHand !== undefined && prev.actualCashInHand > 0) {
+      return Number(prev.actualCashInHand) || 0;
+    }
+    return Number(prev.actualCashInHand) || Number(prev.openingCash) || 0;
   }
 
-  const startDate = account.trackingStartDate;
-  // Collect all dates >= startDate
-  const dateSet = new Set<string>();
-  entryList.forEach((e) => {
-    if (e.date && e.date >= startDate) dateSet.add(e.date);
-  });
-  expenses.forEach((e) => {
-    if (e.isActive && e.date && e.date >= startDate) dateSet.add(e.date);
-  });
-  invoices.forEach((inv) => {
-    if (inv.isActive) {
-      (inv.payments || []).forEach((pmt) => {
-        if (pmt.date && pmt.date >= startDate && pmt.paymentMethod === 'Nakit (Kasadan)') {
-          dateSet.add(pmt.date);
-        }
-      });
-    }
-  });
-  const mainId = account.id || 'ana-kasa';
-  accountTransactions.forEach((tx) => {
-    if (tx.date && tx.date >= startDate) {
-      if (tx.accountId === mainId || tx.toAccountId === mainId || (!account.id && !tx.accountId)) {
-        dateSet.add(tx.date);
-      }
-    }
-  });
-  if (upToDate && upToDate >= startDate) {
-    dateSet.add(upToDate);
-  }
-  dateSet.add(startDate);
-
-  // Sort dates chronologically
-  const sortedDates = Array.from(dateSet).sort();
-  const firstD = sortedDates[0];
-  const lastD = upToDate && upToDate > sortedDates[sortedDates.length - 1] ? upToDate : sortedDates[sortedDates.length - 1];
-
-  const allContinuousDates: string[] = [];
-  const cursor = new Date(firstD + 'T00:00:00');
-  const endCursor = new Date(lastD + 'T00:00:00');
-  while (cursor <= endCursor) {
-    allContinuousDates.push(cursor.toISOString().slice(0, 10));
-    cursor.setDate(cursor.getDate() + 1);
-  }
-
-  const chain: AnaKasaChainItem[] = [];
-  const chainMap = new Map<string, AnaKasaChainItem>();
-  const differenceEntries: AnaKasaChainSummary['differenceEntries'] = [];
-  let totalCarryOverDifferences = 0;
-
-  let prevClosing = Number(account.initialBalance) || 0;
-
-  for (let i = 0; i < allContinuousDates.length; i++) {
-    const d = allContinuousDates[i];
-    if (upToDate && d > upToDate) break;
-
-    const openingCash = i === 0 ? Number(account.initialBalance) || 0 : prevClosing;
-    const dayEntry = entryMap.get(d);
-
-    let cashSales = 0;
-    let cashWithdrawals = 0;
-    if (dayEntry) {
-      const reg = calculateDailyRegister(dayEntry, expenses, invoices, accountTransactions, account);
-      cashSales = reg.cashSales;
-      cashWithdrawals = reg.cashWithdrawals;
-    }
-
-    let accountInflows = 0;
-    let accountOutflows = 0;
-
-    accountTransactions.forEach((tx) => {
-      if (tx.date !== d) return;
-      const isDailyClosing =
-        tx.category === 'Gün Sonu Kasa Devri' ||
-        tx.category === 'Kasa Devri' ||
-        tx.id?.startsWith('vault-') ||
-        tx.id?.startsWith('safe-transfer-');
-      if (isDailyClosing) return;
-
-      if (tx.type === 'deposit' && (tx.accountId === mainId || (!account.id && !tx.accountId))) {
-        accountInflows += Number(tx.amount) || 0;
-      } else if (tx.type === 'transfer' && tx.toAccountId === mainId) {
-        accountInflows += Number(tx.amount) || 0;
-      } else if (tx.type === 'withdrawal' && (tx.accountId === mainId || (!account.id && !tx.accountId))) {
-        accountOutflows += Number(tx.amount) || 0;
-      } else if (tx.type === 'transfer' && tx.fromAccountId === mainId) {
-        accountOutflows += Number(tx.amount) || 0;
-      }
-    });
-
-    const cashExpenses = getDailyCashExpenses(expenses, d);
-    const cashInvoicePayments = getDailyInvoiceCashPayments(invoices, d);
-    const totalOutflow = cashExpenses + cashInvoicePayments + cashWithdrawals + accountOutflows;
-
-    const expectedCash = Math.round((openingCash + cashSales + accountInflows - totalOutflow) * 100) / 100;
-
-    let closingCarryOver: number | undefined = undefined;
-    let carryOverDifference: number | undefined = undefined;
-
-    if (dayEntry && dayEntry.status === 'closed' && dayEntry.closingCarryOver !== undefined) {
-      closingCarryOver = Number(dayEntry.closingCarryOver);
-      carryOverDifference = dayEntry.carryOverDifference !== undefined
-        ? Number(dayEntry.carryOverDifference)
-        : Math.round((closingCarryOver - expectedCash) * 100) / 100;
-    }
-
-    const finalClosingCash = closingCarryOver !== undefined ? closingCarryOver : expectedCash;
-
-    if (carryOverDifference !== undefined && Math.abs(carryOverDifference) >= 0.01) {
-      differenceEntries.push({
-        date: d,
-        difference: carryOverDifference,
-        closingCarryOver: closingCarryOver!,
-        expectedCash,
-      });
-      totalCarryOverDifferences += carryOverDifference;
-    }
-
-    const item: AnaKasaChainItem = {
-      date: d,
-      openingCash,
-      cashSales,
-      accountInflows,
-      cashExpenses,
-      cashInvoicePayments,
-      cashWithdrawals,
-      accountOutflows,
-      totalOutflow,
-      expectedCash,
-      closingCarryOver,
-      carryOverDifference,
-      finalClosingCash,
-    };
-
-    chain.push(item);
-    chainMap.set(d, item);
-    prevClosing = finalClosingCash;
-  }
-
-  const currentBalance = chain.length > 0 ? chain[chain.length - 1].finalClosingCash : (Number(account.initialBalance) || 0);
-
-  return {
-    chain,
-    chainMap,
-    currentBalance: Math.round(currentBalance * 100) / 100,
-    totalCarryOverDifferences: Math.round(totalCarryOverDifferences * 100) / 100,
-    differenceEntries,
-  };
+  // İlk gün (hiç önceki kayıt yoksa) openingCash, Ana Kasa hesabının initialBalance'ı ile başlar
+  return Number(mainAccount?.initialBalance) || 0;
 }
 
 /**
@@ -474,57 +306,12 @@ export function getAnaKasaChain(
 export function getAnaKasaBalanceBeforeDate(
   date: string,
   entries: DailyEntry[] | Record<string, DailyEntry> = [],
-  expenses: CashExpense[] = [],
-  invoices: Invoice[] = [],
-  accountTransactions: AccountTransaction[] = [],
-  account?: FinancialAccount
+  _expenses: CashExpense[] = [],
+  _invoices: Invoice[] = [],
+  _accountTransactions: AccountTransaction[] = [],
+  mainAccount?: FinancialAccount
 ): number {
-  const entryList: DailyEntry[] = Array.isArray(entries) ? entries : Object.values(entries || {});
-
-  if (!account || !account.trackingStartDate) {
-    const sorted = entryList.filter((e) => e.date < date).sort((a, b) => b.date.localeCompare(a.date));
-    const prev = sorted[0];
-    if (prev) {
-      return prev.actualCashInHand > 0 ? prev.actualCashInHand : (prev.openingCash || 0);
-    }
-    return Number(account?.initialBalance) || 0;
-  }
-
-  // Takip başlangıç tarihinden önceki günler için eski hesaplar değişmesin
-  if (date < account.trackingStartDate) {
-    const sorted = entryList.filter((e) => e.date < date).sort((a, b) => b.date.localeCompare(a.date));
-    const prev = sorted[0];
-    if (prev) {
-      return prev.actualCashInHand > 0 ? prev.actualCashInHand : (prev.openingCash || 0);
-    }
-    return Number(account.initialBalance) || 0;
-  }
-
-  // Başlangıç tarihinin kendi günü için devir = başlangıç bakiyesi
-  if (date === account.trackingStartDate) {
-    return Number(account.initialBalance) || 0;
-  }
-
-  // Calculate day preceding date
-  const prevDateObj = new Date(date + 'T00:00:00');
-  prevDateObj.setDate(prevDateObj.getDate() - 1);
-  const prevDateStr = prevDateObj.toISOString().slice(0, 10);
-
-  const chainSummary = getAnaKasaChain(
-    account,
-    entries,
-    expenses,
-    invoices,
-    accountTransactions,
-    prevDateStr
-  );
-
-  const prevItem = chainSummary.chainMap.get(prevDateStr);
-  if (prevItem) {
-    return prevItem.finalClosingCash;
-  }
-
-  return chainSummary.currentBalance;
+  return getPreviousDayClosingCarryOver(date, entries, mainAccount);
 }
 
 /**

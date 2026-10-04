@@ -25,7 +25,7 @@ import {
 import { MasterSafeState, SafeTransaction, BanknoteCounts, TabType, DailyEntry, CashExpense, Invoice, CashWithdrawalItem, FinancialAccount, AccountTransaction } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { calculateBanknoteTotal, calculateTotalBanknoteCount, DEFAULT_BANKNOTES } from '../utils/storage';
-import { calculateDailyRegister, getAnaKasaBalanceBeforeDate } from '../utils/calculations';
+import { calculateDailyRegister, getPreviousDayClosingCarryOver } from '../utils/calculations';
 import { BanknoteCountModal, BanknoteModalSubmitData, DENOMINATIONS } from './BanknoteCountModal';
 import { CashierStepFooter } from './CashierStepFooter';
 import { SmartMoneyInput } from './SmartMoneyInput';
@@ -464,12 +464,9 @@ export const MasterSafeVaultView: React.FC<MasterSafeVaultViewProps> = ({
                           type="button"
                           onClick={() => {
                             if (onUpdateEntry) {
-                              const autoDevir = getAnaKasaBalanceBeforeDate(
+                              const autoDevir = getPreviousDayClosingCarryOver(
                                 currentEntry.date,
                                 allEntries,
-                                expenses || [],
-                                invoices || [],
-                                accountTransactions || [],
                                 mainAccount
                               );
                               onUpdateEntry({

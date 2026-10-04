@@ -184,7 +184,6 @@ export interface FinancialAccount {
   bankName?: string;
   accountNumber?: string; // IBAN veya Hesap No
   initialBalance: number; // Başlangıç Bakiyesi (Avans)
-  trackingStartDate?: string; // YYYY-MM-DD - Kasa Takip Başlangıç Tarihi
   isDefault?: boolean; // Ana Kasa için true
   color?: string; // Kart / rozet rengi
   notes?: string;

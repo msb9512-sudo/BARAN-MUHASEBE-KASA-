@@ -17,7 +17,7 @@ import {
   calculateDailyRegister,
   isCashExpenseMethod,
   getAnaKasaBalanceBeforeDate,
-  getAnaKasaChain,
+  getPreviousDayClosingCarryOver,
 } from './calculations';
 
 const STORAGE_KEYS = {
@@ -242,22 +242,15 @@ export function getOrCreateDailyEntry(
   date: string,
   allEntries: DailyEntry[],
   posDevices: POSDevice[],
-  expenses: CashExpense[] = [],
-  invoices: Invoice[] = [],
-  accountTransactions: AccountTransaction[] = [],
+  _expenses: CashExpense[] = [],
+  _invoices: Invoice[] = [],
+  _accountTransactions: AccountTransaction[] = [],
   account?: FinancialAccount
 ): DailyEntry {
   const existing = allEntries.find((e) => e.date === date);
   if (existing) {
-    if (existing.status !== 'closed' && !existing.isOpeningCashManual && account) {
-      const autoDevir = getAnaKasaBalanceBeforeDate(
-        date,
-        allEntries,
-        expenses,
-        invoices,
-        accountTransactions,
-        account
-      );
+    if (existing.status !== 'closed' && !existing.isOpeningCashManual) {
+      const autoDevir = getPreviousDayClosingCarryOver(date, allEntries, account);
       if (existing.openingCash !== autoDevir) {
         return {
           ...existing,
@@ -268,22 +261,8 @@ export function getOrCreateDailyEntry(
     return existing;
   }
 
-  // Calculate automatic opening cash (devir)
-  let autoOpeningCash = 0;
-  if (account && account.trackingStartDate) {
-    autoOpeningCash = getAnaKasaBalanceBeforeDate(
-      date,
-      allEntries,
-      expenses,
-      invoices,
-      accountTransactions,
-      account
-    );
-  } else {
-    const sorted = [...allEntries].filter((e) => e.date < date).sort((a, b) => b.date.localeCompare(a.date));
-    const prevEntry = sorted[0];
-    autoOpeningCash = prevEntry ? (prevEntry.actualCashInHand || 0) : 0;
-  }
+  // Calculate automatic opening cash (devir) from previous day's closingCarryOver
+  const autoOpeningCash = getPreviousDayClosingCarryOver(date, allEntries, account);
 
   const newEntry: DailyEntry = {
     date,
@@ -446,6 +425,16 @@ export const DEFAULT_ACCOUNTS: FinancialAccount[] = [
     createdAt: new Date().toISOString(),
   },
   {
+    id: 'gunluk-kasa',
+    name: 'Günlük İşleyiş Kasası',
+    type: 'cash',
+    isDefault: false,
+    initialBalance: 0,
+    color: '#10b981',
+    notes: 'Günlük kasa çekmecesi ve işleyiş bakiyesi',
+    createdAt: new Date().toISOString(),
+  },
+  {
     id: 'ziraat-bankasi',
     name: 'Ziraat Bankası',
     type: 'bank',
@@ -472,8 +461,12 @@ export function loadAccounts(): FinancialAccount[] {
     const hasDefault = parsed.some((a) => a.isDefault || a.id === 'ana-kasa');
     if (!hasDefault) {
       parsed.unshift(DEFAULT_ACCOUNTS[0]);
-      saveAccounts(parsed);
     }
+    const hasGunlukKasa = parsed.some((a) => a.id === 'gunluk-kasa');
+    if (!hasGunlukKasa) {
+      parsed.splice(1, 0, DEFAULT_ACCOUNTS[1]);
+    }
+    saveAccounts(parsed);
     return parsed;
   } catch (e) {
     console.error('Failed to load accounts', e);
@@ -531,100 +524,41 @@ export function calculateAccountBalance(
   const initialBalance = Number(account.initialBalance) || 0;
   const isMainCash = account.type === 'cash' || account.isDefault || account.id === 'ana-kasa';
 
-  // 4) Ana Kasa hesabının bakiyesi, takip tarihinden itibaren tek sabit kasa kuralıyla hesaplanır
-  if (isMainCash && account.trackingStartDate) {
+  // Günlük İşleyiş Kasası (id: 'gunluk-kasa')
+  if (account.id === 'gunluk-kasa') {
     const entryList: DailyEntry[] = entries
       ? (Array.isArray(entries) ? entries : Object.values(entries))
       : loadDailyEntries();
     const invList: Invoice[] = invoices || loadInvoices();
 
-    let totalCashSales = 0;
-    let totalAccountDeposits = 0;
-    let totalAccountTransfersIn = 0;
-    let totalCashExpenses = 0;
-    let totalCashInvoicePayments = 0;
-    let totalDailyCashWithdrawals = 0;
-    let totalAccountWithdrawals = 0;
-    let totalAccountTransfersOut = 0;
+    const sorted = [...entryList].filter((e) => e && e.date).sort((a, b) => b.date.localeCompare(a.date));
+    const activeEntry = sorted[0];
 
-    // 1. Nakit Satışlar & Günlük Çekimler (takip başlangıç tarihinden itibaren)
-    entryList.forEach((entry) => {
-      if (!entry || !entry.date || entry.date < account.trackingStartDate!) return;
-      const reg = calculateDailyRegister(entry, expenses, invList, transactions, account);
-      totalCashSales += Number(reg.cashSales) || 0;
-      totalDailyCashWithdrawals += Number(reg.cashWithdrawals) || 0;
-    });
-
-    // 2. Ana Kasa para giriş ve çıkışları (AccountTransaction)
-    transactions.forEach((tx) => {
-      if (!tx || !tx.date || tx.date < account.trackingStartDate!) return;
-      // MasterSafe "daily_closing" depozitoları takip tarihinden sonraki günler için Ana Kasa bakiyesine ayrıca EKLENMESİN
-      const isDailyClosing =
-        tx.category === 'Gün Sonu Kasa Devri' ||
-        tx.category === 'Kasa Devri' ||
-        tx.id?.startsWith('vault-') ||
-        tx.id?.startsWith('safe-transfer-');
-      if (isDailyClosing) return;
-
-      const mainId = account.id || 'ana-kasa';
-      if (tx.accountId === mainId || (!account.id && isMainCash)) {
-        if (tx.type === 'deposit') {
-          totalAccountDeposits += Number(tx.amount) || 0;
-        } else if (tx.type === 'withdrawal') {
-          totalAccountWithdrawals += Number(tx.amount) || 0;
-        } else if (tx.type === 'transfer') {
-          totalAccountTransfersOut += Number(tx.amount) || 0;
-        }
-      } else if (tx.type === 'transfer' && tx.toAccountId === mainId) {
-        totalAccountTransfersIn += Number(tx.amount) || 0;
-      }
-    });
-
-    // 3. Kasadan nakit giderler (isCashExpenseMethod olanlar; kart/banka giderleri DÜŞMEZ)
-    expenses.forEach((exp) => {
-      if (!exp || !exp.isActive || !exp.date || exp.date < account.trackingStartDate!) return;
-      if (isCashExpenseMethod(exp.paidBy)) {
-        totalCashExpenses += Number(exp.amount) || 0;
-      }
-    });
-
-    // 4. Kasadan nakit fatura ödemeleri
-    invList.forEach((inv) => {
-      if (!inv || !inv.isActive) return;
-      (inv.payments || []).forEach((pmt) => {
-        if (pmt.date >= account.trackingStartDate! && pmt.paymentMethod === 'Nakit (Kasadan)') {
-          totalCashInvoicePayments += Number(pmt.amount) || 0;
-        }
-      });
-    });
-
-    const totalDeposits = totalCashSales + totalAccountDeposits;
-    const totalWithdrawals = totalAccountWithdrawals + totalDailyCashWithdrawals + totalCashInvoicePayments;
-    const totalTransfersIn = totalAccountTransfersIn;
-    const totalTransfersOut = totalAccountTransfersOut;
-    const totalExpenses = totalCashExpenses;
-
-    const chainSummary = getAnaKasaChain(
-      account,
-      entryList,
-      expenses,
-      invList,
-      transactions
-    );
-    const currentBalance = chainSummary.currentBalance;
-    const totalInflow = initialBalance + totalDeposits + totalTransfersIn + Math.max(0, chainSummary.totalCarryOverDifferences);
-    const totalOutflow = totalWithdrawals + totalTransfersOut + totalExpenses + Math.max(0, -chainSummary.totalCarryOverDifferences);
+    if (activeEntry) {
+      const reg = calculateDailyRegister(activeEntry, expenses, invList, transactions, account);
+      return {
+        initialBalance: reg.openingCash,
+        totalDeposits: reg.cashSales + reg.accountCashDeposits,
+        totalWithdrawals: reg.cashWithdrawals + reg.accountCashWithdrawals,
+        totalTransfersIn: reg.accountCashDeposits,
+        totalTransfersOut: reg.accountCashWithdrawals,
+        totalExpenses: reg.cashExpenses + reg.invoiceCashPayments,
+        totalInflow: reg.openingCash + reg.cashSales + reg.accountCashDeposits,
+        totalOutflow: reg.totalCashOutflow,
+        currentBalance: Math.round(reg.expectedCash * 100) / 100,
+      };
+    }
 
     return {
       initialBalance,
-      totalDeposits,
-      totalWithdrawals,
-      totalTransfersIn,
-      totalTransfersOut,
-      totalExpenses,
-      totalInflow,
-      totalOutflow,
-      currentBalance,
+      totalDeposits: 0,
+      totalWithdrawals: 0,
+      totalTransfersIn: 0,
+      totalTransfersOut: 0,
+      totalExpenses: 0,
+      totalInflow: initialBalance,
+      totalOutflow: 0,
+      currentBalance: initialBalance,
     };
   }
 
@@ -636,7 +570,7 @@ export function calculateAccountBalance(
 
   transactions.forEach((tx) => {
     const amount = Number(tx.amount) || 0;
-    if (tx.accountId === account.id) {
+    if (tx.accountId === account.id || (!account.id && isMainCash && !tx.accountId)) {
       if (tx.type === 'deposit') {
         totalDeposits += amount;
       } else if (tx.type === 'withdrawal') {
@@ -653,28 +587,14 @@ export function calculateAccountBalance(
     if (!exp.isActive) return;
     const amount = Number(exp.amount) || 0;
 
-    const p = (exp.paidBy || '').toLowerCase();
-    const isCreditOrCard =
-      p === 'kredi kartı' ||
-      p === 'banka kartı' ||
-      p === 'kredi karti' ||
-      p === 'banka karti' ||
-      p.includes('kredi') ||
-      p.includes('kart');
-
-    // KURAL: Banka Kartı ve Kredi Kartı harcamaları KESİNLİKLE Nakit Kasa hesabından DÜŞÜRÜLMEZ!
-    if (isMainCash && isCreditOrCard) {
-      return;
-    }
-
-    const isThisAccount =
-      exp.accountId === account.id ||
-      (!exp.accountId && isMainCash && exp.paidBy === 'Kasa') ||
-      (!exp.accountId && account.type === 'bank' && (exp.paidBy === 'Banka' || exp.paidBy === 'Banka Kartı')) ||
-      (!exp.accountId && (account.type === 'credit_card' || account.type === 'pos') && exp.paidBy === 'Kredi Kartı');
-
-    if (isThisAccount) {
+    if (exp.accountId === account.id) {
       totalExpenses += amount;
+    } else if (!exp.accountId) {
+      if (account.type === 'bank' && (exp.paidBy === 'Banka' || exp.paidBy === 'Banka Kartı')) {
+        totalExpenses += amount;
+      } else if ((account.type === 'credit_card' || account.type === 'pos') && exp.paidBy === 'Kredi Kartı') {
+        totalExpenses += amount;
+      }
     }
   });
 
@@ -704,7 +624,7 @@ export function calculateAccountBalance(
     totalExpenses,
     totalInflow,
     totalOutflow,
-    currentBalance,
+    currentBalance: Math.round(currentBalance * 100) / 100,
   };
 }
 

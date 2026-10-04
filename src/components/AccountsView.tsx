@@ -39,7 +39,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { calculateAccountBalance, calculateBanknoteTotal } from '../utils/storage';
-import { getAnaKasaChain } from '../utils/calculations';
+
 import { SmartMoneyInput } from './SmartMoneyInput';
 
 interface AccountsViewProps {
@@ -111,7 +111,6 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     bankName: '',
     accountNumber: '',
     initialBalance: '',
-    trackingStartDate: '',
     color: '#3b82f6',
     notes: '',
   });
@@ -193,127 +192,93 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
   }, [accounts, accountBalances]);
 
   // Main Cash Account & Carry-over Chain Summary
-  const mainCashAccount = useMemo(() => {
-    return accounts.find((a) => a.isDefault || a.id === 'ana-kasa' || a.type === 'cash');
-  }, [accounts]);
-
-  const anaKasaChainSummary = useMemo(() => {
-    if (!mainCashAccount || !mainCashAccount.trackingStartDate) return null;
-    return getAnaKasaChain(mainCashAccount, entries, expenses, invoices, accountTransactions);
-  }, [mainCashAccount, entries, expenses, invoices, accountTransactions]);
-
-  // Combined unified ledger entries (Transactions + Expenses + Kasa Düzeltmeleri)
-  const unifiedLedger = useMemo(() => {
-    interface LedgerItem {
-      id: string;
-      date: string;
-      accountId: string;
-      accountName: string;
-      type: 'deposit' | 'withdrawal' | 'transfer' | 'expense' | 'adjustment';
-      amount: number;
-      category: string;
-      description: string;
-      toAccountName?: string;
-      fromAccountName?: string;
-      receiptNo?: string;
-      enteredBy?: string;
-      createdAt: string;
-      isExpense: boolean;
-      rawTransactionId?: string;
-      isCarryOverAdjustment?: boolean;
-      rawDifference?: number;
-    }
-
-    const items: LedgerItem[] = [];
-
-    // Add manual account transactions
-    accountTransactions.forEach((tx) => {
-      const acc = accounts.find((a) => a.id === tx.accountId);
-      items.push({
-        id: `tx-${tx.id}`,
-        date: tx.date,
-        accountId: tx.accountId,
-        accountName: acc?.name || tx.accountName || 'Hesap',
-        type: tx.type,
-        amount: tx.amount,
-        category: tx.category || (tx.type === 'deposit' ? 'Para Girişi' : tx.type === 'withdrawal' ? 'Para Çıkışı' : 'Virman'),
-        description: tx.description,
-        toAccountName: tx.toAccountName,
-        fromAccountName: tx.fromAccountName,
-        receiptNo: tx.receiptNo,
-        enteredBy: tx.enteredBy,
-        createdAt: tx.createdAt,
-        isExpense: false,
-        rawTransactionId: tx.id,
-      });
-    });
-
-    // Add expenses mapped to their account
-    expenses.forEach((exp) => {
-      if (!exp.isActive) return;
-      const p = (exp.paidBy || '').toLowerCase();
-      const isCreditOrCard =
-        p === 'kredi kartı' ||
-        p === 'banka kartı' ||
-        p === 'kredi karti' ||
-        p === 'banka karti' ||
-        p.includes('kredi') ||
-        p.includes('kart');
-
-      let targetAccount = accounts.find((a) => a.id === exp.accountId);
-
-      if (isCreditOrCard) {
-        // If assigned to a cash drawer account or not set, route to a credit card or bank account
-        if (!targetAccount || targetAccount.type === 'cash' || targetAccount.id === 'ana-kasa') {
-          targetAccount =
-            accounts.find((a) => a.type === 'credit_card') ||
-            accounts.find((a) => a.type === 'bank') ||
-            targetAccount;
-        }
-      } else if (!targetAccount) {
-        targetAccount =
-          exp.paidBy === 'Banka'
-            ? accounts.find((a) => a.type === 'bank') || accounts[0]
-            : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0];
+    // Combined unified ledger entries (Transactions + Expenses)
+    const unifiedLedger = useMemo(() => {
+      interface LedgerItem {
+        id: string;
+        date: string;
+        accountId: string;
+        accountName: string;
+        type: 'deposit' | 'withdrawal' | 'transfer' | 'expense' | 'adjustment';
+        amount: number;
+        category: string;
+        description: string;
+        toAccountName?: string;
+        fromAccountName?: string;
+        receiptNo?: string;
+        enteredBy?: string;
+        createdAt: string;
+        isExpense: boolean;
+        rawTransactionId?: string;
       }
 
-      items.push({
-        id: `exp-${exp.id}`,
-        date: exp.date,
-        accountId: targetAccount ? targetAccount.id : isCreditOrCard ? 'kredi-karti' : 'ana-kasa',
-        accountName: targetAccount ? targetAccount.name : isCreditOrCard ? 'Kredi / Banka Kartı' : 'Ana Kasa',
-        type: 'expense',
-        amount: exp.amount,
-        category: exp.category || 'Gider',
-        description: exp.description,
-        receiptNo: exp.receiptNo,
-        enteredBy: exp.enteredBy,
-        createdAt: exp.createdAt,
-        isExpense: true,
-      });
-    });
+      const items: LedgerItem[] = [];
 
-    // 4) Add Kasa Düzeltmesi entries for days where closingCarryOver differed from expectedCash
-    if (anaKasaChainSummary && mainCashAccount) {
-      anaKasaChainSummary.differenceEntries.forEach((diff) => {
+      // Add manual account transactions
+      accountTransactions.forEach((tx) => {
+        const acc = accounts.find((a) => a.id === tx.accountId);
         items.push({
-          id: `diff-${diff.date}`,
-          date: diff.date,
-          accountId: mainCashAccount.id,
-          accountName: mainCashAccount.name,
-          type: 'adjustment',
-          amount: Math.abs(diff.difference),
-          category: 'Kasa Düzeltmesi',
-          description: `Kasa Düzeltmesi (${formatDateTR(diff.date)}): ${diff.difference > 0 ? '+' : ''}${formatCurrency(diff.difference)} (Hesaplanan: ${formatCurrency(diff.expectedCash)}, Devir: ${formatCurrency(diff.closingCarryOver)})`,
-          receiptNo: 'Gün Kapanışı',
-          enteredBy: 'Sistem',
-          createdAt: diff.date + 'T23:59:59',
+          id: `tx-${tx.id}`,
+          date: tx.date,
+          accountId: tx.accountId,
+          accountName: acc?.name || tx.accountName || 'Hesap',
+          type: tx.type,
+          amount: tx.amount,
+          category: tx.category || (tx.type === 'deposit' ? 'Para Girişi' : tx.type === 'withdrawal' ? 'Para Çıkışı' : 'Virman'),
+          description: tx.description,
+          toAccountName: tx.toAccountName,
+          fromAccountName: tx.fromAccountName,
+          receiptNo: tx.receiptNo,
+          enteredBy: tx.enteredBy,
+          createdAt: tx.createdAt,
           isExpense: false,
-          isCarryOverAdjustment: true,
-          rawDifference: diff.difference,
+          rawTransactionId: tx.id,
         });
       });
-    }
+
+      // Add expenses mapped to their account
+      expenses.forEach((exp) => {
+        if (!exp.isActive) return;
+        const p = (exp.paidBy || '').toLowerCase();
+        const isCreditOrCard =
+          p === 'kredi kartı' ||
+          p === 'banka kartı' ||
+          p === 'kredi karti' ||
+          p === 'banka karti' ||
+          p.includes('kredi') ||
+          p.includes('kart');
+
+        let targetAccount = accounts.find((a) => a.id === exp.accountId);
+
+        if (isCreditOrCard) {
+          if (!targetAccount || targetAccount.type === 'cash' || targetAccount.id === 'ana-kasa') {
+            targetAccount =
+              accounts.find((a) => a.type === 'credit_card') ||
+              accounts.find((a) => a.type === 'bank') ||
+              targetAccount;
+          }
+        } else if (!targetAccount) {
+          targetAccount =
+            exp.paidBy === 'Banka'
+              ? accounts.find((a) => a.type === 'bank') || accounts[0]
+              : accounts.find((a) => a.isDefault || a.id === 'ana-kasa') || accounts[0];
+        }
+
+        items.push({
+          id: `exp-${exp.id}`,
+          date: exp.date,
+          accountId: targetAccount ? targetAccount.id : isCreditOrCard ? 'kredi-karti' : 'ana-kasa',
+          accountName: targetAccount ? targetAccount.name : isCreditOrCard ? 'Kredi / Banka Kartı' : 'Ana Kasa',
+          type: 'expense',
+          amount: exp.amount,
+          category: exp.category || 'Gider',
+          description: exp.description,
+          receiptNo: exp.receiptNo,
+          enteredBy: exp.enteredBy,
+          createdAt: exp.createdAt,
+          isExpense: true,
+        });
+      });
 
     // Filter
     return items
@@ -321,8 +286,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         if (accountFilter !== 'all' && item.accountId !== accountFilter) return false;
         if (typeFilter !== 'all') {
           if (typeFilter === 'expense' && !item.isExpense) return false;
-          if (typeFilter === 'deposit' && item.type !== 'deposit' && (!item.isCarryOverAdjustment || (item.rawDifference ?? 0) < 0)) return false;
-          if (typeFilter === 'withdrawal' && item.type !== 'withdrawal' && (!item.isCarryOverAdjustment || (item.rawDifference ?? 0) >= 0)) return false;
+          if (typeFilter === 'deposit' && item.type !== 'deposit') return false;
+          if (typeFilter === 'withdrawal' && item.type !== 'withdrawal') return false;
           if (typeFilter === 'transfer' && item.type !== 'transfer') return false;
         }
         if (searchQuery.trim()) {
@@ -336,7 +301,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         return true;
       })
       .sort((a, b) => new Date(b.date + ' ' + (b.createdAt || '')).getTime() - new Date(a.date + ' ' + (a.createdAt || '')).getTime());
-  }, [accountTransactions, expenses, accounts, accountFilter, typeFilter, searchQuery, anaKasaChainSummary, mainCashAccount]);
+  }, [accountTransactions, expenses, accounts, accountFilter, typeFilter, searchQuery]);
 
   // Handlers for Account Modal
   const handleOpenAddAccount = () => {
@@ -770,7 +735,8 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 currentBalance: 0,
               };
 
-              const isMainCash = acc.isDefault || acc.id === 'ana-kasa';
+              const isMainCash = acc.isDefault || acc.id === 'ana-kasa' || acc.type === 'cash';
+              const isGunlukKasa = acc.id === 'gunluk-kasa';
 
               return (
                 <div
@@ -815,7 +781,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                         >
                           <Edit2 className="w-3.5 h-3.5" />
                         </button>
-                        {!isMainCash && (
+                        {!isMainCash && !isGunlukKasa && (
                           <button
                             onClick={() => setDeleteConfirmAccount(acc)}
                             className="p-1.5 text-gray-500 hover:text-rose-400 hover:bg-rose-500/10 rounded transition cursor-pointer"
@@ -868,34 +834,21 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                       </div>
                     </div>
 
-                    {isMainCash && (
-                      <div className="bg-[#0d1117] p-2 rounded border border-orange-500/30 text-[10px] space-y-1">
-                        <div className="flex items-center justify-between text-gray-300">
-                          <span className="text-gray-400">Kasa Takip Başlangıç Tarihi:</span>
-                          <strong className="text-orange-400 font-bold">
-                            {acc.trackingStartDate ? formatDateTR(acc.trackingStartDate) : 'Tanımlanmadı (Tüm Hareketler)'}
-                          </strong>
-                        </div>
-                        {acc.trackingStartDate ? (
-                          <>
-                            <span className="text-gray-400 block text-[9px]">
-                              ✓ {formatDateTR(acc.trackingStartDate)} sabahı {formatCurrency(acc.initialBalance)} açılış avansı ile başlatıldı; günlük kasa ile tek sabit kasa olarak birleştirildi.
-                            </span>
-                            {anaKasaChainSummary && anaKasaChainSummary.differenceEntries.length > 0 && (
-                              <div className="flex items-center justify-between text-[10px] font-mono text-purple-300 bg-purple-500/10 px-2 py-1 rounded border border-purple-500/20 mt-1">
-                                <span>Kasa Düzeltme Özeti ({anaKasaChainSummary.differenceEntries.length} gün):</span>
-                                <strong className={anaKasaChainSummary.totalCarryOverDifferences >= 0 ? 'text-emerald-400 font-bold' : 'text-rose-400 font-bold'}>
-                                  {anaKasaChainSummary.totalCarryOverDifferences > 0 ? '+' : ''}
-                                  {formatCurrency(anaKasaChainSummary.totalCarryOverDifferences)}
-                                </strong>
-                              </div>
-                            )}
-                          </>
-                        ) : (
-                          <span className="text-gray-500 block text-[9px]">
-                            Düzenle butonuna tıklayarak takip başlangıç tarihi belirleyebilirsiniz.
-                          </span>
-                        )}
+                    {isMainCash && !isGunlukKasa && (
+                      <div className="bg-[#0d1117] p-2 rounded border border-orange-500/35 text-[10px] space-y-0.5 text-gray-400 font-sans">
+                        <span className="font-semibold text-orange-400 block">Ana Nakit Kasası</span>
+                        <p className="text-[10px] text-gray-400">
+                          Günlük kapanış farkları ve nakit virmanlar bu hesaba işlenir.
+                        </p>
+                      </div>
+                    )}
+
+                    {isGunlukKasa && (
+                      <div className="bg-[#0d1117] p-2 rounded border border-emerald-500/35 text-[10px] space-y-0.5 text-gray-400 font-sans">
+                        <span className="font-semibold text-emerald-400 block">Günlük İşleyiş Kasası</span>
+                        <p className="text-[10px] text-gray-400">
+                          Kasa İşlemleri ekranındaki güncel beklenen nakit mevcudunu gösterir.
+                        </p>
                       </div>
                     )}
 
@@ -955,40 +908,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
         )}
       </div>
 
-      {/* Toplam Kasa Düzeltme Özeti Banner (Kural 4) */}
-      {anaKasaChainSummary && anaKasaChainSummary.differenceEntries.length > 0 && (
-        <div className="bg-[#161b22] rounded-xl border border-purple-500/30 p-4 sm:p-5 shadow-lg flex flex-col sm:flex-row sm:items-center justify-between gap-4 font-mono">
-          <div className="flex items-start space-x-3.5">
-            <div className="p-2.5 rounded-xl bg-purple-500/20 text-purple-400 border border-purple-500/30 shrink-0">
-              <Scale className="w-6 h-6" />
-            </div>
-            <div>
-              <div className="flex items-center space-x-2">
-                <h4 className="text-sm font-bold text-white uppercase tracking-wider">
-                  Ana Kasa Kapanış Düzeltmeleri Özeti
-                </h4>
-                <span className="px-2 py-0.5 rounded-full bg-purple-500/30 text-purple-300 text-[11px] font-bold">
-                  {anaKasaChainSummary.differenceEntries.length} Gün Düzeltmeli
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 font-sans mt-0.5">
-                Gün kapanışlarında fiili sayım ile hesaplanan kasa arasındaki farktan kaynaklanan onaylanmış devir düzeltmeleri.
-              </p>
-            </div>
-          </div>
-          <div className="bg-[#0d1117] px-4 py-2.5 rounded-xl border border-[#30363d] flex sm:flex-col items-center sm:items-end justify-between sm:justify-center shrink-0">
-            <span className="text-[10px] text-gray-400 uppercase tracking-wider">Net Kasa Düzeltmesi</span>
-            <span
-              className={`text-lg font-black ${
-                anaKasaChainSummary.totalCarryOverDifferences >= 0 ? 'text-emerald-400' : 'text-rose-400'
-              }`}
-            >
-              {anaKasaChainSummary.totalCarryOverDifferences > 0 ? '+' : ''}
-              {formatCurrency(anaKasaChainSummary.totalCarryOverDifferences)}
-            </span>
-          </div>
-        </div>
-      )}
+
 
       {/* Unified Transaction & Expense Ledger Table */}
       <div className="bg-[#161b22] rounded-xl border border-[#30363d] shadow-lg overflow-hidden">
@@ -1302,21 +1222,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 </div>
               </div>
 
-              {/* Kasa Takip Başlangıç Tarihi (Özellikle Nakit Kasa için) */}
-              <div>
-                <label className="block font-semibold text-gray-300 mb-1">
-                  Kasa Takip Başlangıç Tarihi
-                </label>
-                <input
-                  type="date"
-                  value={accountFormData.trackingStartDate}
-                  onChange={(e) => setAccountFormData({ ...accountFormData, trackingStartDate: e.target.value })}
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white font-mono focus:border-orange-500 focus:outline-none"
-                />
-                <span className="text-[10px] text-gray-400 mt-1 block">
-                  Başlangıç bakiyesi, bu tarihin SABAHINDAKİ kasa tutarıdır (avans). Bu tarihten önceki günlerin hiçbir hesabı değişmez; bu tarihten itibaren günlük kasa ve Ana Kasa tek sabit kasa olarak otomatik devir işletir.
-                </span>
-              </div>
+
 
               {/* Color Selection Palette */}
               <div>
