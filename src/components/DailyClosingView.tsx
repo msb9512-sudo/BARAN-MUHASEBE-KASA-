@@ -75,6 +75,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
   const gunlukKasaAccount = accounts?.find((a) => a.id === 'gunluk-kasa') || accounts?.find((a) => a.isDefault || a.type === 'cash') || accounts?.[0];
   const mainAccount = gunlukKasaAccount;
   const reg = calculateDailyRegister(currentEntry, expenses, invoices, accountTransactions, mainAccount);
+  const dailyNetCashWithoutDevir = (reg.cashSales + (reg.accountCashDeposits || 0)) - reg.totalCashOutflow;
   const warnings = auditDailyEntry(currentEntry, expenses, invoices, accountTransactions, mainAccount);
   const errorCount = warnings.filter((w) => w.type === 'error').length;
   const isClosed = currentEntry.status === 'closed';
@@ -505,16 +506,24 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
             <div className="lg:col-span-5 space-y-3 flex flex-col justify-between">
               <div className="space-y-3">
                 {/* 6. Expected Cash (OTOMATİK KALAN NAKİT) */}
-                <div className="bg-emerald-500/10 text-white p-3.5 rounded-xl border border-emerald-500/40 flex items-center justify-between shadow-sm">
-                  <div>
-                    <span className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
-                      (=) BEKLENEN / KALAN NAKİT KASA:
+                <div className="bg-emerald-500/10 text-white p-3.5 rounded-xl border border-emerald-500/40 space-y-2 shadow-sm">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-xs text-emerald-400 font-bold uppercase tracking-wide">
+                        (=) BEKLENEN / KALAN NAKİT KASA:
+                      </span>
+                      <p className="text-[11px] text-gray-300 font-medium">Devir + Günlük Satış - Giderler</p>
+                    </div>
+                    <span className="text-xl font-black text-emerald-400">
+                      {formatCurrency(reg.expectedCash)}
                     </span>
-                    <p className="text-[11px] text-gray-300 font-medium">Giderler & faturalar düşüldükten sonra kalan tutar</p>
                   </div>
-                  <span className="text-xl font-black text-emerald-400">
-                    {formatCurrency(reg.expectedCash)}
-                  </span>
+                  <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between text-xs">
+                    <span className="text-gray-300">Günlük Net Kalan (Devir Hariç):</span>
+                    <span className={`font-mono font-bold ${dailyNetCashWithoutDevir >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      {dailyNetCashWithoutDevir > 0 ? '+' : ''}{formatCurrency(dailyNetCashWithoutDevir)}
+                    </span>
+                  </div>
                 </div>
 
                 {/* 7. Actual Counted Cash & Quick Sync Button */}
@@ -837,13 +846,30 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                   </div>
                 )}
 
-                {/* Kalan (Net Kalması Gereken Nakit) */}
-                <div className="flex items-center justify-between py-1.5 px-2.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-white font-bold my-1">
+                {/* Kalan (Devir Hariç: O günkü Nakit Satış - Kasadan Çıkan) */}
+                <div
+                  className={`flex items-center justify-between py-1.5 px-2.5 rounded-lg border font-bold my-1 ${
+                    dailyNetCashWithoutDevir >= 0
+                      ? 'bg-emerald-500/15 border-emerald-500/30 text-white'
+                      : 'bg-rose-500/15 border-rose-500/30 text-white'
+                  }`}
+                >
                   <div className="flex items-center space-x-1.5">
-                    <span className="text-emerald-300 text-xs font-bold">(=) Kalan</span>
-                    <span className="text-[10px] text-gray-400 font-normal">(Net Kalması Gereken Nakit):</span>
+                    <span className={`text-xs font-bold ${dailyNetCashWithoutDevir >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>
+                      (=) Kalan
+                    </span>
+                    <span className="text-[10px] text-gray-400 font-normal">
+                      (Nakit Satış - Çıkan / Devir Hariç):
+                    </span>
                   </div>
-                  <span className="font-mono text-emerald-400 text-sm font-extrabold">{formatCurrency(reg.expectedCash)}</span>
+                  <span
+                    className={`font-mono text-sm font-extrabold ${
+                      dailyNetCashWithoutDevir >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                    }`}
+                  >
+                    {dailyNetCashWithoutDevir > 0 ? '+' : ''}
+                    {formatCurrency(dailyNetCashWithoutDevir)}
+                  </span>
                 </div>
               </div>
 

@@ -2,7 +2,7 @@
   "name": "baran-muhasebe-kasa",
   "productName": "Baran Muhasebe Kasa",
   "private": true,
-  "version": "1.0.13",
+  "version": "1.0.14",
   "main": "electron/main.cjs",
   "type": "module",
   "scripts": {
