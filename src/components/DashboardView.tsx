@@ -256,7 +256,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             {formatCurrency(reg.cashExpenses)}
           </p>
           <div className="flex items-center justify-between text-[11px] text-gray-400 font-mono mt-2 pt-2 border-t border-[#30363d]">
-            <span>{dayExpenses.filter((e) => isCashExpenseMethod(e.paidBy)).length} Nakit Harcama</span>
+            <span>{dayExpenses.filter((e) => isCashExpenseMethod(e.paidBy) && (!e.accountId || e.accountId === 'gunluk-kasa')).length} Nakit Harcama</span>
             {reg.creditCardExpenses > 0 ? (
               <span className="text-sky-400 font-semibold" title="Banka & Kredi Kartı Harcamaları (Kasadan Düşmez)">
                 💳 Kredi: {formatCurrency(reg.creditCardExpenses)}

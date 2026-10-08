@@ -73,15 +73,15 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
   // ==========================================
   const dayExpenses = (expenses || []).filter((e) => e.isActive && e.date === entry.date);
 
-  // Kasadan nakit ödenen faturalar
+  // Kasadan nakit ödenen faturalar (Sadece Günlük Kasa)
   const dayCashInvoices = (invoices || [])
     .filter((inv) => inv.isActive)
     .flatMap((inv) =>
       (inv.payments || [])
-        .filter((p) => p.date === entry.date && p.paymentMethod === 'Nakit (Kasadan)')
+        .filter((p) => p.date === entry.date && p.paymentMethod === 'Nakit (Kasadan)' && (!p.accountId || p.accountId === 'gunluk-kasa'))
         .map((p) => ({
           supplierName: inv.supplierName,
-          invoiceNumber: inv.invoiceNumber,
+          invoiceNumber: (inv as any).invoiceNumber || inv.invoiceNo,
           amount: Number(p.amount) || 0,
         }))
     );
@@ -116,10 +116,29 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
   // b) Ödeme türüne göre dağılım
   const paymentMethods: { method: string; amount: number; isNonCash: boolean }[] = [
     {
-      method: 'Kasa (Nakit)',
-      amount: dayExpenses.filter((e) => isCashExpenseMethod(e.paidBy)).reduce((s, e) => s + (Number(e.amount) || 0), 0),
+      method: 'Günlük Kasa (Nakit)',
+      amount: dayExpenses
+        .filter((e) => isCashExpenseMethod(e.paidBy) && (!e.accountId || e.accountId === 'gunluk-kasa'))
+        .reduce((s, e) => s + (Number(e.amount) || 0), 0),
       isNonCash: false,
     },
+    ...dayExpenses
+      .filter((e) => isCashExpenseMethod(e.paidBy) && e.accountId && e.accountId !== 'gunluk-kasa')
+      .reduce((acc, e) => {
+        const accName = e.accountName || e.accountId || 'Diğer Kasa';
+        const label = `${accName} (Nakit)`;
+        const existing = acc.find((x) => x.method === label);
+        if (existing) {
+          existing.amount += Number(e.amount) || 0;
+        } else {
+          acc.push({
+            method: label,
+            amount: Number(e.amount) || 0,
+            isNonCash: true,
+          });
+        }
+        return acc;
+      }, [] as { method: string; amount: number; isNonCash: boolean }[]),
     {
       method: 'Kredi Kartı',
       amount: dayExpenses.filter((e) => e.paidBy === 'Kredi Kartı').reduce((s, e) => s + (Number(e.amount) || 0), 0),
@@ -258,7 +277,8 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
       categoryList.forEach((cat) => {
         lines.push(`• *${cat.name}* (${cat.count} adet, %${cat.percentage.toFixed(1)}): ${cat.totalAmount.toLocaleString('tr-TR')} ₺`);
         cat.items.forEach((it) => {
-          const nonCashNote = !isCashExpenseMethod(it.paidBy) ? ' - Kasadan düşmez' : '';
+          const isFromGunlukKasa = isCashExpenseMethod(it.paidBy) && (!it.accountId || it.accountId === 'gunluk-kasa');
+          const nonCashNote = !isFromGunlukKasa ? ' - Kasadan düşmez' : '';
           lines.push(`  - ${it.description || cat.name} (${it.paidBy}${nonCashNote}): ${Number(it.amount).toLocaleString('tr-TR')} ₺`);
         });
       });
@@ -611,7 +631,8 @@ export const BossReportModal: React.FC<BossReportModalProps> = ({
                           {!isCollapsed && (
                             <div className="px-3 pb-2.5 pt-1 space-y-1 border-t border-[#21262d]/60 bg-[#161b22]/40">
                               {cat.items.map((it) => {
-                                const nonCash = !isCashExpenseMethod(it.paidBy);
+                                const isFromGunlukKasa = isCashExpenseMethod(it.paidBy) && (!it.accountId || it.accountId === 'gunluk-kasa');
+                                const nonCash = !isFromGunlukKasa;
                                 return (
                                   <div
                                     key={it.id}

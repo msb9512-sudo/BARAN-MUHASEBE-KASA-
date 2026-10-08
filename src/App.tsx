@@ -666,6 +666,7 @@ export function App() {
             <InvoicesView
               selectedDate={selectedDate}
               invoices={appState.invoices}
+              accounts={appState.accounts || []}
               onAddInvoice={handleAddInvoice}
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}

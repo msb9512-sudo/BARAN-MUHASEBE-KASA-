@@ -22,7 +22,7 @@ import {
   Tag,
   Percent,
 } from 'lucide-react';
-import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType } from '../types';
+import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType, FinancialAccount } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportInvoicesToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
@@ -214,6 +214,7 @@ const InvoiceDescriptionSnippet: React.FC<{ text: string }> = ({ text }) => {
 interface InvoicesViewProps {
   selectedDate: string;
   invoices: Invoice[];
+  accounts?: FinancialAccount[];
   onAddInvoice: (invoice: Omit<Invoice, 'id' | 'createdAt'>) => void;
   onUpdateInvoice: (invoice: Invoice) => void;
   onDeleteInvoice: (id: string) => void;
@@ -224,6 +225,7 @@ interface InvoicesViewProps {
 export const InvoicesView: React.FC<InvoicesViewProps> = ({
   selectedDate,
   invoices,
+  accounts = [],
   onAddInvoice,
   onUpdateInvoice,
   onDeleteInvoice,
@@ -265,6 +267,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     bankOrSource: 'Garanti Ticari',
     receiptNo: '',
     notes: '',
+    accountId: 'gunluk-kasa',
   });
 
   // Calculate high-level metrics
@@ -577,14 +580,16 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     setPayingInvoice(inv);
     const paidSum = inv.payments.reduce((s, p) => s + (Number(p.amount) || 0), 0);
     const remaining = Math.max(0, inv.totalAmount - paidSum);
+    const defaultAcc = accounts.find((a) => a.id === 'gunluk-kasa') || accounts[0];
 
     setPaymentForm({
       date: selectedDate,
       amount: remaining.toString(),
       paymentMethod: 'Banka Transferi / EFT',
-      bankOrSource: 'Garanti Ticari',
+      bankOrSource: defaultAcc ? defaultAcc.name : 'Garanti Ticari',
       receiptNo: `EFT-${Date.now().toString().slice(-4)}`,
       notes: `${inv.supplierName} faturası ödemesi`,
+      accountId: defaultAcc ? defaultAcc.id : 'gunluk-kasa',
     });
     setIsPaymentModalOpen(true);
   };
@@ -608,6 +613,7 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
       bankOrSource: paymentForm.bankOrSource.trim(),
       receiptNo: paymentForm.receiptNo.trim() || undefined,
       notes: paymentForm.notes.trim() || undefined,
+      accountId: paymentForm.accountId || undefined,
     });
 
     setIsPaymentModalOpen(false);
@@ -1582,24 +1588,59 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                   <option value="Çek">Çek / Senet</option>
                 </select>
                 {paymentForm.paymentMethod === 'Nakit (Kasadan)' && (
-                  <p className="text-[11px] text-amber-400 mt-1">
-                    ⚠ Bu ödeme seçildiğinde {formatDateTR(paymentForm.date)} tarihli Günlük Nakit Kasadan otomatik düşülecektir.
+                  <p className="text-[11px] mt-1">
+                    {paymentForm.accountId === 'gunluk-kasa' || !paymentForm.accountId ? (
+                      <span className="text-amber-400">
+                        ⚠ Bu ödeme seçildiğinde {formatDateTR(paymentForm.date)} tarihli Günlük Nakit Kasadan otomatik düşülecektir.
+                      </span>
+                    ) : (
+                      <span className="text-sky-400">
+                        ℹ Bu nakit ödeme seçilen hesaptan düşülecektir; Günlük Kasa'yı etkilemez.
+                      </span>
+                    )}
                   </p>
                 )}
               </div>
 
-              <div>
-                <label className="block font-semibold text-gray-300 mb-1">
-                  Banka / Kasa Adı
-                </label>
-                <input
-                  type="text"
-                  value={paymentForm.bankOrSource}
-                  onChange={(e) => setPaymentForm({ ...paymentForm, bankOrSource: e.target.value })}
-                  placeholder="Örn: Garanti Ticari Şube / Ana Kasa"
-                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
-                />
-              </div>
+              {accounts.length > 0 ? (
+                <div>
+                  <label className="block font-semibold text-gray-300 mb-1">
+                    Ödeme Yapılan Hesap / Kasa *
+                  </label>
+                  <select
+                    value={paymentForm.accountId}
+                    onChange={(e) => {
+                      const selId = e.target.value;
+                      const selAcc = accounts.find((a) => a.id === selId);
+                      setPaymentForm({
+                        ...paymentForm,
+                        accountId: selId,
+                        bankOrSource: selAcc ? selAcc.name : paymentForm.bankOrSource,
+                      });
+                    }}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                  >
+                    {accounts.map((acc) => (
+                      <option key={acc.id} value={acc.id}>
+                        {acc.name} ({acc.type === 'cash' ? 'Kasa' : acc.type === 'bank' ? 'Banka' : 'Hesap'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ) : (
+                <div>
+                  <label className="block font-semibold text-gray-300 mb-1">
+                    Banka / Kasa Adı
+                  </label>
+                  <input
+                    type="text"
+                    value={paymentForm.bankOrSource}
+                    onChange={(e) => setPaymentForm({ ...paymentForm, bankOrSource: e.target.value })}
+                    placeholder="Örn: Garanti Ticari Şube / Ana Kasa"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              )}
 
               <div>
                 <label className="block font-semibold text-gray-300 mb-1">

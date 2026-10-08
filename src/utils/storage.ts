@@ -610,8 +610,8 @@ export function calculateAccountBalance(
         }
       });
 
-      const totalDeposits = reg.cashSales + reg.accountCashDeposits + postDeposits;
-      const totalWithdrawals = reg.cashWithdrawals + reg.accountCashWithdrawals + postWithdrawals;
+      const totalDeposits = reg.cashSales + postDeposits;
+      const totalWithdrawals = reg.cashWithdrawals + postWithdrawals;
       const totalTransfersIn = reg.accountCashDeposits + postTransfersIn;
       const totalTransfersOut = reg.accountCashWithdrawals + postTransfersOut;
       const totalExpenses = reg.cashExpenses + reg.invoiceCashPayments;
@@ -710,6 +710,22 @@ export function calculateAccountBalance(
       }
     }
   });
+
+  if (invoices && invoices.length > 0) {
+    invoices.forEach((inv) => {
+      if (!inv.isActive) return;
+      inv.payments?.forEach((pmt) => {
+        const amount = Number(pmt.amount) || 0;
+        if (pmt.accountId === account.id) {
+          totalExpenses += amount;
+        } else if (!pmt.accountId) {
+          if (account.type === 'bank' && pmt.paymentMethod === 'Banka Transferi / EFT' && pmt.bankOrSource === account.name) {
+            totalExpenses += amount;
+          }
+        }
+      });
+    });
+  }
 
   const totalInflow = initialBalance + totalDeposits + totalTransfersIn;
   const totalOutflow = totalWithdrawals + totalTransfersOut + totalExpenses;

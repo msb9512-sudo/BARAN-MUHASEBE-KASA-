@@ -530,7 +530,7 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
                   <span className="font-semibold text-emerald-400">+{formatCurrency(previewCashSales)}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-400">- Günlük Kasa Giderleri ({expenses.filter(e => e.isActive && e.date === currentEntry.date && isCashExpenseMethod(e.paidBy)).length} adet):</span>
+                  <span className="text-gray-400">- Günlük Kasa Giderleri ({expenses.filter(e => e.isActive && e.date === currentEntry.date && isCashExpenseMethod(e.paidBy) && (!e.accountId || e.accountId === 'gunluk-kasa')).length} adet):</span>
                   <span className="font-semibold text-rose-400">-{formatCurrency(dailyCashExpenses)}</span>
                 </div>
                 {dailyCreditCardExpenses > 0 && (

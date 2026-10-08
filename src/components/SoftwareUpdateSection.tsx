@@ -35,7 +35,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
   // Local version state
-  const [currentVersion, setCurrentVersion] = useState<string>('1.0.14');
+  const [currentVersion, setCurrentVersion] = useState<string>('1.0.15');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
   const [userDataPath, setUserDataPath] = useState<string | null>(null);
 
@@ -674,54 +674,54 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               </div>
             )}
 
-            {/* v1.0.14 Güncel Sürüm İçeriği ve Değişiklik Notları */}
+            {/* v1.0.15 Güncel Sürüm İçeriği ve Değişiklik Notları */}
             <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3 text-xs font-mono">
               <div className="flex items-center justify-between border-b border-[#21262d] pb-2">
                 <div className="flex items-center space-x-2">
                   <GitCommit className="w-4 h-4 text-orange-400" />
                   <span className="font-bold text-white uppercase tracking-wider">
-                    v1.0.14 Sürüm İçeriği & Yenilikler
+                    v1.0.15 Sürüm İçeriği & Yenilikler
                   </span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-bold">
-                  v1.0.14 Güncel
+                  v1.0.15 Güncel
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11px] text-gray-300">
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>🛡️ Kasa & Hesap Ayrımı Güvencesi</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Nakit giderlerde ve fatura ödemelerinde seçilen hesap (örn: Alt Kasa) neyse gider sadece o hesaptan düşer; Günlük Kasa'dan mükerrer düşüş tamamen engellendi.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>📊 Hesap Kartı Virman Düzeltmesi</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Hesap kartlarındaki "Toplam Giriş (+)" ve "Para Çekim / Virman (-)" kutularında virmanın iki kez toplanması giderildi; kutular net gerçek tutarları yansıtır.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
+                    <span>🔒 Kapalı Gün Kasa Hareketi Koruması</span>
+                  </div>
+                  <p className="text-gray-400 leading-relaxed">
+                    Günlük İşleyiş Kasası için kapalı veya geçmiş günlere para yatır, para çek ve virman kaydı yapılmasını engelleyen akıllı tarih kontrolü ve otomatik açık gün varsayılanı eklendi.
+                  </p>
+                </div>
+
+                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
+                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
                     <span>💵 Devirsiz Günlük Net Kalan</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Kasadan Toplam Çıkan satırının altındaki Kalan göstergesi, önceki günden devir hariç tutularak sadece o günkü net nakit satıştan kasadan çıkan toplam tutarın düşülmesiyle net gün içi kalan olarak güncellendi.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
-                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>⚡ Otomatik Kasa Hesabı Taşındı</span>
-                  </div>
-                  <p className="text-gray-400 leading-relaxed">
-                    Otomatik Kasa Hesabı paneli Günlük Kasa Kapanışı ekranında ana başlığın hemen altına yerleştirilerek anlık kasa akışı ve mutabakatı en üstte erişilebilir kılındı.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
-                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>🏛️ Tek ve Net Nakit Kasası</span>
-                  </div>
-                  <p className="text-gray-400 leading-relaxed">
-                    Mükerrer "Ana Kasa" hesap ayrımı kaldırılarak tek varsayılan nakit hesabı olarak Günlük İşleyiş Kasası belirlendi; hesap kartları ve defter kayıtları sadeleştirildi.
-                  </p>
-                </div>
-
-                <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
-                  <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>🛡️ Kusursuz Veri Uyumu</span>
-                  </div>
-                  <p className="text-gray-400 leading-relaxed">
-                    Eski hareket ve gider kayıtları otomatik olarak Günlük İşleyiş Kasası'na taşınarak geçmiş veri bütünlüğü tam koruma altına alındı.
+                    Kasadan Toplam Çıkan satırının altındaki Kalan göstergesi, önceki günden devir hariç tutularak sadece o günkü net nakit satıştan kasadan çıkan toplam tutarın düşülmesiyle net gün içi kalan olarak gösterilir.
                   </p>
                 </div>
               </div>
@@ -1001,10 +1001,10 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>version.txt Dosyasını Güncelleyin</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.14</code>):
+                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.15</code>):
                 </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 font-mono text-emerald-400">
-                  1.0.14
+                  1.0.15
                 </div>
               </div>
 
@@ -1015,7 +1015,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 </div>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 space-y-1 font-mono text-gray-200">
                   <div>git add version.txt</div>
-                  <div>git commit -m "release: v1.0.14"</div>
+                  <div>git commit -m "release: v1.0.15"</div>
                   <div className="text-orange-400">git push origin main</div>
                 </div>
               </div>
@@ -1030,7 +1030,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <li><code>version.txt</code> sürümünü <code>package.json</code> ile senkronize eder.</li>
                   <li><code>npm run build</code> ile React kodlarını derler.</li>
                   <li><code>electron-builder --win --publish always</code> komutuyla Windows NSIS `.exe` kurulum dosyasını oluşturur.</li>
-                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.14</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
+                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.15</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
                 </ul>
               </div>
 

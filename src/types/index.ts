@@ -254,6 +254,7 @@ export interface InvoicePayment {
   bankOrSource: string;
   receiptNo?: string;
   notes?: string;
+  accountId?: string;
   createdAt: string;
 }
 

@@ -37,7 +37,7 @@ import {
   DailyEntry,
   Invoice,
 } from '../types';
-import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
+import { formatCurrency, formatDateTR, parseNumberInput, getTodayIsoDate } from '../utils/formatters';
 import { calculateAccountBalance, calculateBanknoteTotal } from '../utils/storage';
 
 import { SmartMoneyInput } from './SmartMoneyInput';
@@ -146,6 +146,80 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     });
     return map;
   }, [accounts, expenses, accountTransactions, masterSafe, entries, invoices]);
+
+  // Unified DailyEntry list from props
+  const entryList: DailyEntry[] = useMemo(() => {
+    return Array.isArray(entries) ? entries : Object.values(entries || {});
+  }, [entries]);
+
+  // Entries with valid dates sorted descending (latest to oldest)
+  const sortedEntries = useMemo(() => {
+    return [...entryList].filter((e) => Boolean(e?.date)).sort((a, b) => b.date.localeCompare(a.date));
+  }, [entryList]);
+
+  // En son kayıtlı günün tarihi
+  const latestRegisteredDate = useMemo(() => {
+    return sortedEntries[0]?.date || '';
+  }, [sortedEntries]);
+
+  // En son açık günün tarihi (seçili gün kapalıysa veya geçmişte kalmışsa bu tarih kullanılır)
+  const latestOpenDate = useMemo(() => {
+    const today = getTodayIsoDate();
+
+    // 1. Seçili gün açık mı ve en son günden önce değil mi?
+    const selectedEntry = sortedEntries.find((e) => e.date === selectedDate);
+    const isSelectedClosed = selectedEntry?.status === 'closed';
+    const isSelectedPast = Boolean(latestRegisteredDate && selectedDate < latestRegisteredDate);
+
+    if (!isSelectedClosed && !isSelectedPast) {
+      return selectedDate;
+    }
+
+    // 2. Kayıtlı açık günlerden (draft) en yenisini bul
+    const openEntries = sortedEntries.filter((e) => e.status !== 'closed');
+    if (openEntries.length > 0) {
+      return openEntries[0].date;
+    }
+
+    // 3. Eğer bugün kapatılmamışsa bugünü kullan
+    const todayEntry = sortedEntries.find((e) => e.date === today);
+    if (!todayEntry || todayEntry.status !== 'closed') {
+      return today;
+    }
+
+    return today || selectedDate;
+  }, [selectedDate, sortedEntries, latestRegisteredDate]);
+
+  // Günlük İşleyiş Kasası için kapalı gün veya kayıtlı en son günden önce olma denetimi
+  const isGunlukKasaDateBlocked = (dateToCheck: string): boolean => {
+    if (!dateToCheck) return false;
+    // 1. Kayıtlı en son DailyEntry gününden ÖNCE ise kayıt yapılmasın
+    if (latestRegisteredDate && dateToCheck < latestRegisteredDate) {
+      return true;
+    }
+    // 2. Veya o gün kapatılmışsa (status 'closed') kayıt yapılmasın
+    const entryForDate = sortedEntries.find((e) => e.date === dateToCheck);
+    if (entryForDate && entryForDate.status === 'closed') {
+      return true;
+    }
+    return false;
+  };
+
+  // Selected accounts and blocked status for Tx Modal (Para Yatır / Çek)
+  const currentTxAccountId = txFormData.accountId || selectedAccountIdForTx || accounts[0]?.id || '';
+  const currentTxAccount = useMemo(() => accounts.find((a) => a.id === currentTxAccountId), [accounts, currentTxAccountId]);
+  const isTxGunlukKasa = currentTxAccountId === 'gunluk-kasa' || (currentTxAccount?.type === 'cash' && currentTxAccount?.isDefault);
+  const isTxDateBlocked = isTxGunlukKasa && isGunlukKasaDateBlocked(txFormData.date);
+
+  // Selected accounts and blocked status for Transfer (Virman) Modal
+  const fromTransferAccount = useMemo(() => accounts.find((a) => a.id === transferFormData.fromAccountId), [accounts, transferFormData.fromAccountId]);
+  const toTransferAccount = useMemo(() => accounts.find((a) => a.id === transferFormData.toAccountId), [accounts, transferFormData.toAccountId]);
+  const isTransferGunlukKasa =
+    transferFormData.fromAccountId === 'gunluk-kasa' ||
+    transferFormData.toAccountId === 'gunluk-kasa' ||
+    (fromTransferAccount?.type === 'cash' && fromTransferAccount?.isDefault) ||
+    (toTransferAccount?.type === 'cash' && toTransferAccount?.isDefault);
+  const isTransferDateBlocked = isTransferGunlukKasa && isGunlukKasaDateBlocked(transferFormData.date);
 
   // All managed accounts filtered by category
   const displayedAccounts = useMemo(() => {
@@ -382,7 +456,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setSelectedAccountIdForTx(chosenAcc);
     setTxFormData({
       accountId: chosenAcc,
-      date: selectedDate,
+      date: latestOpenDate,
       amount: '',
       category: mode === 'deposit' ? 'Para Girişi' : 'Para Çıkışı',
       description: '',
@@ -406,9 +480,16 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
       return;
     }
 
-    const acc = accounts.find((a) => a.id === (txFormData.accountId || selectedAccountIdForTx));
+    const currentAccountId = txFormData.accountId || selectedAccountIdForTx;
+    const acc = accounts.find((a) => a.id === currentAccountId);
     if (!acc) {
       setTxFormError('Lütfen bir hesap seçiniz.');
+      return;
+    }
+
+    const isGunlukKasa = acc.id === 'gunluk-kasa' || (acc.type === 'cash' && acc.isDefault);
+    if (isGunlukKasa && isGunlukKasaDateBlocked(txFormData.date)) {
+      setTxFormError('Bu gün kapatılmış. İşlem tarihini bugünün (açık günün) tarihi yapın ya da önce günü yeniden açın.');
       return;
     }
 
@@ -437,7 +518,7 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     setTransferFormData({
       fromAccountId: fromId,
       toAccountId: otherAcc ? otherAcc.id : '',
-      date: selectedDate,
+      date: latestOpenDate,
       amount: '',
       description: 'Hesaplar arası virman transferi',
       receiptNo: '',
@@ -464,6 +545,17 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
 
     if (!fromAcc || !toAcc) {
       setTransferFormError('Lütfen hem kaynak hem de hedef hesabı seçiniz.');
+      return;
+    }
+
+    const isGunlukKasaInvolved =
+      fromAcc.id === 'gunluk-kasa' ||
+      toAcc.id === 'gunluk-kasa' ||
+      (fromAcc.type === 'cash' && fromAcc.isDefault) ||
+      (toAcc.type === 'cash' && toAcc.isDefault);
+
+    if (isGunlukKasaInvolved && isGunlukKasaDateBlocked(transferFormData.date)) {
+      setTransferFormError('Bu gün kapatılmış. İşlem tarihini bugünün (açık günün) tarihi yapın ya da önce günü yeniden açın.');
       return;
     }
 
@@ -1304,6 +1396,26 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               </div>
             )}
 
+            {isTxDateBlocked && (
+              <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                <div className="flex-1">
+                  <p className="font-semibold text-rose-200">
+                    Bu gün kapatılmış. İşlem tarihini bugünün (açık günün) tarihi yapın ya da önce günü yeniden açın.
+                  </p>
+                  {latestOpenDate && latestOpenDate !== txFormData.date && (
+                    <button
+                      type="button"
+                      onClick={() => setTxFormData({ ...txFormData, date: latestOpenDate })}
+                      className="mt-1 text-[11px] text-sky-400 hover:text-sky-300 underline font-semibold cursor-pointer block"
+                    >
+                      Tarihi Açık Güne ({formatDateTR(latestOpenDate)}) Ayarla
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+
             <form onSubmit={handleSaveTx} className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div>
@@ -1335,7 +1447,11 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     required
                     value={txFormData.date}
                     onChange={(e) => setTxFormData({ ...txFormData, date: e.target.value })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                    className={`w-full bg-[#0d1117] border rounded-lg px-3 py-2 text-white focus:outline-none ${
+                      isTxDateBlocked
+                        ? 'border-rose-500/70 focus:border-rose-500 ring-1 ring-rose-500/30'
+                        : 'border-[#30363d] focus:border-orange-500'
+                    }`}
                   />
                 </div>
               </div>
@@ -1418,9 +1534,15 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className={`px-5 py-2 rounded-lg text-white font-semibold shadow-md cursor-pointer ${
-                    txMode === 'deposit' ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500'
+                  disabled={isTxDateBlocked}
+                  className={`px-5 py-2 rounded-lg text-white font-semibold shadow-md transition ${
+                    isTxDateBlocked
+                      ? 'bg-gray-600 opacity-50 cursor-not-allowed'
+                      : txMode === 'deposit'
+                      ? 'bg-emerald-600 hover:bg-emerald-500 cursor-pointer'
+                      : 'bg-rose-600 hover:bg-rose-500 cursor-pointer'
                   }`}
+                  title={isTxDateBlocked ? 'Bu gün kapatılmış. Kayıt yapılamaz.' : undefined}
                 >
                   {txMode === 'deposit' ? 'Girişi Kaydet' : 'Çıkışı Kaydet'}
                 </button>
@@ -1456,6 +1578,26 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
               <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
                 <AlertCircle className="w-4 h-4 shrink-0" />
                 <span>{transferFormError}</span>
+              </div>
+            )}
+
+            {isTransferDateBlocked && (
+              <div className="p-3 rounded-lg bg-rose-500/15 border border-rose-500/40 text-rose-300 text-xs flex items-start space-x-2.5">
+                <AlertCircle className="w-4 h-4 shrink-0 mt-0.5 text-rose-400" />
+                <div className="flex-1">
+                  <p className="font-semibold text-rose-200">
+                    Bu gün kapatılmış. İşlem tarihini bugünün (açık günün) tarihi yapın ya da önce günü yeniden açın.
+                  </p>
+                  {latestOpenDate && latestOpenDate !== transferFormData.date && (
+                    <button
+                      type="button"
+                      onClick={() => setTransferFormData({ ...transferFormData, date: latestOpenDate })}
+                      className="mt-1 text-[11px] text-sky-400 hover:text-sky-300 underline font-semibold cursor-pointer block"
+                    >
+                      Tarihi Açık Güne ({formatDateTR(latestOpenDate)}) Ayarla
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -1518,7 +1660,11 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                     required
                     value={transferFormData.date}
                     onChange={(e) => setTransferFormData({ ...transferFormData, date: e.target.value })}
-                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-white focus:border-orange-500 focus:outline-none"
+                    className={`w-full bg-[#0d1117] border rounded-lg px-3 py-2 text-white focus:outline-none ${
+                      isTransferDateBlocked
+                        ? 'border-rose-500/70 focus:border-rose-500 ring-1 ring-rose-500/30'
+                        : 'border-[#30363d] focus:border-orange-500'
+                    }`}
                   />
                 </div>
               </div>
@@ -1546,7 +1692,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-lg bg-sky-600 hover:bg-sky-500 text-white font-semibold shadow-md cursor-pointer"
+                  disabled={isTransferDateBlocked}
+                  className={`px-5 py-2 rounded-lg font-semibold shadow-md transition ${
+                    isTransferDateBlocked
+                      ? 'bg-gray-600 opacity-50 cursor-not-allowed text-gray-300'
+                      : 'bg-sky-600 hover:bg-sky-500 text-white cursor-pointer'
+                  }`}
+                  title={isTransferDateBlocked ? 'Bu gün kapatılmış. Kayıt yapılamaz.' : undefined}
                 >
                   Transferi Gerçekleştir
                 </button>

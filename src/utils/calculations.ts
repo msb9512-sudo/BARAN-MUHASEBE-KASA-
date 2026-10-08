@@ -51,11 +51,19 @@ export function isCashExpenseMethod(paidBy?: string): boolean {
 
 /**
  * Calculates total expenses paid via Cash (Kasadan / Elden Nakit) for a specific date.
+ * SADECE Günlük Kasa'ya (accountId: 'gunluk-kasa' veya boş olan) ait nakit giderleri sayar.
+ * Başka bir hesaba (örn: Alt Kasa) ait nakit giderler Günlük Kasa'dan düşülmez.
  * Banka Kartı ve Kredi Kartı harcamaları KESİNLİKLE kasadan düşürülmez.
  */
 export function getDailyCashExpenses(expenses: CashExpense[] = [], date: string): number {
   return expenses
-    .filter((e) => e.isActive && e.date === date && isCashExpenseMethod(e.paidBy))
+    .filter(
+      (e) =>
+        e.isActive &&
+        e.date === date &&
+        isCashExpenseMethod(e.paidBy) &&
+        (!e.accountId || e.accountId === 'gunluk-kasa')
+    )
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 }
 
@@ -79,7 +87,8 @@ export function getDailyTotalExpenses(expenses: CashExpense[] = [], date: string
 }
 
 /**
- * Calculates invoice payments made in CASH from the register for a specific date
+ * Calculates invoice payments made in CASH from the register for a specific date.
+ * SADECE Günlük Kasa'ya ait (accountId: 'gunluk-kasa' veya boş olan) nakit fatura ödemelerini sayar.
  */
 export function getDailyInvoiceCashPayments(invoices: Invoice[] = [], date: string): number {
   let total = 0;
@@ -87,7 +96,8 @@ export function getDailyInvoiceCashPayments(invoices: Invoice[] = [], date: stri
     .filter((inv) => inv.isActive)
     .forEach((inv) => {
       inv.payments.forEach((pmt) => {
-        if (pmt.date === date && pmt.paymentMethod === 'Nakit (Kasadan)') {
+        const isGunlukKasa = !pmt.accountId || pmt.accountId === 'gunluk-kasa';
+        if (pmt.date === date && pmt.paymentMethod === 'Nakit (Kasadan)' && isGunlukKasa) {
           total += Number(pmt.amount) || 0;
         }
       });
