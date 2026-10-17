@@ -24,6 +24,7 @@ import {
   SafeTransaction,
   FinancialAccount,
   AccountTransaction,
+  RegisteredSupplier,
 } from './types';
 import { Navbar } from './components/Navbar';
 import { DashboardView } from './components/DashboardView';
@@ -159,7 +160,7 @@ export function App() {
       status: 'draft',
       openingCash: autoOpeningCash,
       isOpeningCashManual: false,
-      actualCashInHand: autoOpeningCash,
+      actualCashInHand: 0,
       cashWithdrawals: [],
       notes: '',
       vegaReport: {
@@ -289,6 +290,58 @@ export function App() {
         invoices: updatedInvoices,
       };
     });
+  };
+
+  // Supplier Handlers
+  const handleAddSupplier = (supplierData: Omit<RegisteredSupplier, 'id' | 'createdAt'>) => {
+    const newSupplier: RegisteredSupplier = {
+      ...supplierData,
+      id: `sup-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+    };
+    setAppState((prev) => ({
+      ...prev,
+      registeredSuppliers: [newSupplier, ...(prev.registeredSuppliers || [])],
+    }));
+
+    // If opening debt balance is entered (> 0), also create an opening invoice automatically
+    if (supplierData.openingBalance && supplierData.openingBalance > 0) {
+      handleAddInvoice({
+        invoiceNo: `AÇILIŞ-${supplierData.name.trim().slice(0, 3).toUpperCase()}-${Date.now().toString().slice(-4)}`,
+        date: selectedDate || getTodayIsoDate(),
+        supplierName: supplierData.name.trim(),
+        taxNumber: supplierData.taxNumber?.trim(),
+        category: supplierData.category || 'Toptan Gıda',
+        totalAmount: supplierData.openingBalance,
+        netAmount: supplierData.openingBalance,
+        vatAmount: 0,
+        vatRate: 0,
+        dueDate: selectedDate || getTodayIsoDate(),
+        paymentStatus: 'unpaid',
+        description: 'Tedarikçi Açılış / Devir Borç Bakiyesi',
+        items: [
+          {
+            id: `item-${Date.now()}`,
+            productName: 'Açılış / Devir Borç Bakiyesi',
+            quantity: 1,
+            unitPrice: supplierData.openingBalance,
+            vatRate: 0,
+            category: supplierData.category || 'Toptan Gıda',
+            unit: 'adet',
+            total: supplierData.openingBalance,
+          },
+        ],
+        payments: [],
+        isActive: true,
+      });
+    }
+  };
+
+  const handleDeleteSupplier = (id: string) => {
+    setAppState((prev) => ({
+      ...prev,
+      registeredSuppliers: (prev.registeredSuppliers || []).filter((s) => s.id !== id),
+    }));
   };
 
   // Open Account Customers & Transactions Handlers
@@ -667,10 +720,12 @@ export function App() {
               selectedDate={selectedDate}
               invoices={appState.invoices}
               accounts={appState.accounts || []}
+              registeredSuppliers={appState.registeredSuppliers || []}
               onAddInvoice={handleAddInvoice}
               onUpdateInvoice={handleUpdateInvoice}
               onDeleteInvoice={handleDeleteInvoice}
               onAddPayment={handleAddPayment}
+              onAddSupplier={handleAddSupplier}
               onNavigate={(tab) => setActiveTab(tab)}
             />
           )}
@@ -678,7 +733,11 @@ export function App() {
           {activeTab === 'suppliers' && (
             <SuppliersView
               invoices={appState.invoices}
+              registeredSuppliers={appState.registeredSuppliers || []}
               onNavigate={(tab) => setActiveTab(tab)}
+              onAddSupplier={handleAddSupplier}
+              onDeleteSupplier={handleDeleteSupplier}
+              onAddInvoice={handleAddInvoice}
             />
           )}
 

@@ -17,23 +17,55 @@ import {
   TrendingDown,
   Receipt,
   Layers,
+  Plus,
+  X,
+  Save,
+  Phone,
+  User,
+  MapPin,
+  Trash2,
 } from 'lucide-react';
-import { Invoice, TabType, SupplierGroup } from '../types';
+import { Invoice, TabType, SupplierGroup, RegisteredSupplier } from '../types';
 import {
   groupInvoicesBySupplier,
   getInvoiceAmounts,
   normalizeSupplierName,
+  cleanTaxNumber,
 } from '../utils/calculations';
-import { formatCurrency, formatDateTR } from '../utils/formatters';
+import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 
 interface SuppliersViewProps {
   invoices: Invoice[];
+  registeredSuppliers?: RegisteredSupplier[];
   onNavigate?: (tab: TabType) => void;
+  onAddSupplier?: (supplierData: Omit<RegisteredSupplier, 'id' | 'createdAt'>) => void;
+  onDeleteSupplier?: (id: string) => void;
+  onAddInvoice?: (invoice: Omit<Invoice, 'id' | 'createdAt'>) => void;
 }
+
+const SUPPLIER_CATEGORIES = [
+  'Toptan Gıda',
+  'Kasap & Et Ürünleri',
+  'Manav & Sebze/Meyve',
+  'İçecek & Meşrubat',
+  'Unlu Mamuller & Ekmek',
+  'Süt & Şarküteri',
+  'Sarf & Temizlik',
+  'Ambalaj & Paketleme',
+  'Hizmet & Bakım',
+  'Diğer',
+];
 
 type SortField = 'debt' | 'amount' | 'name' | 'date';
 
-export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNavigate }) => {
+export const SuppliersView: React.FC<SuppliersViewProps> = ({
+  invoices,
+  registeredSuppliers = [],
+  onNavigate,
+  onAddSupplier,
+  onDeleteSupplier,
+  onAddInvoice,
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState<SortField>('debt');
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null);
@@ -42,10 +74,65 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
   const [selectedMonth, setSelectedMonth] = useState<string>('all');
   const [expandedInvoiceId, setExpandedInvoiceId] = useState<string | null>(null);
 
-  // Group invoices into unique suppliers
+  // Add Supplier Modal state
+  const [isAddSupplierOpen, setIsAddSupplierOpen] = useState(false);
+  const [supplierFormData, setSupplierFormData] = useState({
+    name: '',
+    category: 'Toptan Gıda',
+    taxNumber: '',
+    taxOffice: '',
+    contactPerson: '',
+    phone: '',
+    openingBalance: '',
+    address: '',
+    notes: '',
+  });
+  const [formError, setFormError] = useState<string | null>(null);
+  const [successToast, setSuccessToast] = useState<string | null>(null);
+
+  // Group invoices into unique suppliers AND merge registered suppliers
   const supplierGroups = useMemo(() => {
-    return groupInvoicesBySupplier(invoices);
-  }, [invoices]);
+    const fromInvoices = groupInvoicesBySupplier(invoices);
+    const existingClustersByName = new Map<string, SupplierGroup>();
+    const existingClustersByVkn = new Map<string, SupplierGroup>();
+
+    fromInvoices.forEach((g) => {
+      existingClustersByName.set(normalizeSupplierName(g.name), g);
+      if (g.taxNumber) {
+        existingClustersByVkn.set(cleanTaxNumber(g.taxNumber), g);
+      }
+    });
+
+    // Match or add registered suppliers
+    const standaloneRegistered: SupplierGroup[] = [];
+
+    (registeredSuppliers || []).forEach((reg) => {
+      const norm = normalizeSupplierName(reg.name);
+      const cleanVkn = cleanTaxNumber(reg.taxNumber);
+
+      const matched = (cleanVkn && existingClustersByVkn.get(cleanVkn)) || existingClustersByName.get(norm);
+      if (matched) {
+        matched.registeredSupplier = reg;
+      } else {
+        standaloneRegistered.push({
+          id: `reg-${reg.id}`,
+          name: reg.name,
+          taxNumber: reg.taxNumber,
+          invoiceCount: 0,
+          totalAmount: 0,
+          netAmount: 0,
+          vatAmount: 0,
+          paidAmount: 0,
+          remainingDebt: 0,
+          lastTransactionDate: reg.createdAt ? reg.createdAt.slice(0, 10) : '',
+          invoices: [],
+          registeredSupplier: reg,
+        });
+      }
+    });
+
+    return [...fromInvoices, ...standaloneRegistered];
+  }, [invoices, registeredSuppliers]);
 
   // Overall KPIs
   const overallKPIs = useMemo(() => {
@@ -168,6 +255,47 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
     return Array.from(map.values()).sort((a, b) => b.totalWithVatAmount - a.totalWithVatAmount);
   }, [currentSupplier, filteredSupplierInvoices]);
 
+  // Save new supplier handler
+  const handleSaveSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    setFormError(null);
+
+    const trimmedName = supplierFormData.name.trim();
+    if (!trimmedName) {
+      setFormError('Lütfen firma / tedarikçi ünvanını giriniz.');
+      return;
+    }
+
+    const norm = normalizeSupplierName(trimmedName);
+    const isDuplicate = supplierGroups.some((s) => normalizeSupplierName(s.name) === norm);
+    if (isDuplicate) {
+      setFormError(`"${trimmedName}" adında bir tedarikçi zaten kayıtlı.`);
+      return;
+    }
+
+    const balanceNum = supplierFormData.openingBalance
+      ? parseNumberInput(supplierFormData.openingBalance)
+      : 0;
+
+    const newSupplierData: Omit<RegisteredSupplier, 'id' | 'createdAt'> = {
+      name: trimmedName,
+      category: supplierFormData.category,
+      taxNumber: supplierFormData.taxNumber.trim() || undefined,
+      taxOffice: supplierFormData.taxOffice.trim() || undefined,
+      contactPerson: supplierFormData.contactPerson.trim() || undefined,
+      phone: supplierFormData.phone.trim() || undefined,
+      openingBalance: balanceNum > 0 ? balanceNum : undefined,
+      address: supplierFormData.address.trim() || undefined,
+      notes: supplierFormData.notes.trim() || undefined,
+    };
+
+    onAddSupplier?.(newSupplierData);
+
+    setIsAddSupplierOpen(false);
+    setSuccessToast(`✓ "${trimmedName}" tedarikçi listesine başarıyla eklendi.`);
+    setTimeout(() => setSuccessToast(null), 3500);
+  };
+
   // If a supplier detail is active, render DETAIL VIEW
   if (currentSupplier) {
     const detailTotals = filteredSupplierInvoices.reduce(
@@ -202,15 +330,40 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
               <span>← Tüm Tedarikçi Firmalara Dön</span>
             </button>
 
-            {onNavigate && (
+            <div className="flex items-center space-x-2 flex-wrap gap-y-2">
               <button
-                onClick={() => onNavigate('invoices')}
-                className="inline-flex items-center space-x-1.5 text-xs text-orange-400 hover:text-orange-300 transition cursor-pointer self-start sm:self-auto font-medium"
+                type="button"
+                onClick={() => {
+                  setSupplierFormData({
+                    name: '',
+                    category: 'Toptan Gıda',
+                    taxNumber: '',
+                    taxOffice: '',
+                    contactPerson: '',
+                    phone: '',
+                    openingBalance: '',
+                    address: '',
+                    notes: '',
+                  });
+                  setFormError(null);
+                  setIsAddSupplierOpen(true);
+                }}
+                className="inline-flex items-center space-x-1.5 text-xs font-bold text-white bg-orange-600 hover:bg-orange-500 px-3 py-2 rounded-lg transition shadow-md cursor-pointer"
               >
-                <FileText className="w-3.5 h-3.5" />
-                <span>Faturalar Modülüne Git →</span>
+                <Plus className="w-4 h-4" />
+                <span>+ Tedarikçi Ekle</span>
               </button>
-            )}
+
+              {onNavigate && (
+                <button
+                  onClick={() => onNavigate('invoices')}
+                  className="inline-flex items-center space-x-1.5 text-xs text-orange-400 hover:text-orange-300 bg-[#21262d] hover:bg-[#30363d] px-3 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-medium"
+                >
+                  <FileText className="w-3.5 h-3.5" />
+                  <span>Faturaları Yönet →</span>
+                </button>
+              )}
+            </div>
           </div>
 
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-t border-[#30363d] pt-4">
@@ -239,6 +392,39 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                 <p className="text-xs text-gray-400 mt-1">
                   Son Alışveriş: <strong className="text-gray-200">{formatDateTR(currentSupplier.lastTransactionDate)}</strong>
                 </p>
+
+                {currentSupplier.registeredSupplier && (
+                  <div className="flex flex-wrap items-center gap-3 text-xs text-gray-300 mt-2 bg-[#0d1117] p-2.5 rounded-lg border border-[#21262d]">
+                    {currentSupplier.registeredSupplier.category && (
+                      <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[11px] font-semibold">
+                        {currentSupplier.registeredSupplier.category}
+                      </span>
+                    )}
+                    {currentSupplier.registeredSupplier.contactPerson && (
+                      <span className="flex items-center space-x-1 text-gray-300">
+                        <User className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Yetkili: <strong className="text-white">{currentSupplier.registeredSupplier.contactPerson}</strong></span>
+                      </span>
+                    )}
+                    {currentSupplier.registeredSupplier.phone && (
+                      <span className="flex items-center space-x-1 text-gray-300">
+                        <Phone className="w-3.5 h-3.5 text-gray-400" />
+                        <span>Tel: <strong className="text-white">{currentSupplier.registeredSupplier.phone}</strong></span>
+                      </span>
+                    )}
+                    {currentSupplier.registeredSupplier.taxOffice && (
+                      <span className="text-gray-400">
+                        V.D.: <strong className="text-gray-200">{currentSupplier.registeredSupplier.taxOffice}</strong>
+                      </span>
+                    )}
+                    {currentSupplier.registeredSupplier.address && (
+                      <span className="flex items-center space-x-1 text-gray-400 w-full mt-1">
+                        <MapPin className="w-3.5 h-3.5 text-gray-500 shrink-0" />
+                        <span className="truncate">{currentSupplier.registeredSupplier.address}</span>
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
 
@@ -649,15 +835,40 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
           </p>
         </div>
 
-        {onNavigate && (
+        <div className="flex items-center space-x-2.5 self-start sm:self-auto flex-wrap gap-y-2">
           <button
-            onClick={() => onNavigate('invoices')}
-            className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3 py-2 rounded-lg border border-[#30363d] transition cursor-pointer self-start sm:self-auto"
+            type="button"
+            onClick={() => {
+              setSupplierFormData({
+                name: '',
+                category: 'Toptan Gıda',
+                taxNumber: '',
+                taxOffice: '',
+                contactPerson: '',
+                phone: '',
+                openingBalance: '',
+                address: '',
+                notes: '',
+              });
+              setFormError(null);
+              setIsAddSupplierOpen(true);
+            }}
+            className="flex items-center space-x-1.5 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer"
           >
-            <FileText className="w-4 h-4 text-orange-400" />
-            <span>Faturaları Yönet</span>
+            <Plus className="w-4 h-4" />
+            <span>Tedarikçi Ekle</span>
           </button>
-        )}
+
+          {onNavigate && (
+            <button
+              onClick={() => onNavigate('invoices')}
+              className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3 py-2 rounded-lg border border-[#30363d] transition cursor-pointer"
+            >
+              <FileText className="w-4 h-4 text-orange-400" />
+              <span>Faturaları Yönet</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Genel Özet KPI Cards */}
@@ -793,6 +1004,11 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                     <h3 className="font-bold text-white text-base font-sans group-hover:text-orange-400 transition">
                       {supplier.name}
                     </h3>
+                    {supplier.registeredSupplier?.category && (
+                      <span className="px-2 py-0.5 rounded bg-orange-500/10 border border-orange-500/20 text-orange-400 text-[10px] font-semibold">
+                        {supplier.registeredSupplier.category}
+                      </span>
+                    )}
                     {supplier.taxNumber ? (
                       <span className="px-2 py-0.5 rounded bg-[#21262d] border border-[#30363d] text-orange-400 text-[10px] font-semibold">
                         VKN: {supplier.taxNumber}
@@ -807,10 +1023,21 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
-                    <span>
-                      Son İşlem: <strong className="text-gray-300">{formatDateTR(supplier.lastTransactionDate)}</strong>
-                    </span>
+                  <div className="flex items-center flex-wrap gap-3 text-xs text-gray-400 mt-1">
+                    {supplier.lastTransactionDate ? (
+                      <span>
+                        Son İşlem: <strong className="text-gray-300">{formatDateTR(supplier.lastTransactionDate)}</strong>
+                      </span>
+                    ) : (
+                      <span className="text-emerald-400 font-semibold">
+                        Yeni Kayıtlı Tedarikçi
+                      </span>
+                    )}
+                    {supplier.registeredSupplier?.phone && (
+                      <span className="text-gray-400">
+                        Tel: <strong className="text-gray-300">{supplier.registeredSupplier.phone}</strong>
+                      </span>
+                    )}
                   </div>
                 </div>
               </div>
@@ -854,6 +1081,186 @@ export const SuppliersView: React.FC<SuppliersViewProps> = ({ invoices, onNaviga
           ))
         )}
       </div>
+
+      {/* YENİ TEDARİKÇİ EKLE MODAL */}
+      {isAddSupplierOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d] bg-[#0d1117]">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-orange-500/10 border border-orange-500/20 text-orange-400">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Yeni Tedarikçi Firma Ekle</h3>
+                  <p className="text-xs text-gray-400">Tedarikçi firma ve cari kart bilgilerini kaydedin</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddSupplierOpen(false)}
+                className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body Form */}
+            <form onSubmit={handleSaveSupplier} className="p-6 space-y-4 overflow-y-auto">
+              {formError && (
+                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{formError}</span>
+                </div>
+              )}
+
+              {/* 1. Firma Adı & Kategori */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-200 uppercase">
+                  Firma / Tedarikçi Ünvanı *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={supplierFormData.name}
+                  onChange={(e) => setSupplierFormData({ ...supplierFormData, name: e.target.value })}
+                  placeholder="Örn: Metro Grossmarket, Özlem Kasap, Sütaş vb."
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-orange-500 focus:outline-none font-sans font-semibold"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Sektör / Faaliyet Kategorisi
+                  </label>
+                  <select
+                    value={supplierFormData.category}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, category: e.target.value })}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-orange-500 focus:outline-none cursor-pointer"
+                  >
+                    {SUPPLIER_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Vergi / T.C. Kimlik No (VKN / TCKN)
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.taxNumber}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, taxNumber: e.target.value })}
+                    placeholder="10 veya 11 haneli numara"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Vergi Dairesi
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.taxOffice}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, taxOffice: e.target.value })}
+                    placeholder="Örn: Beyoğlu V.D."
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Yetkili Kişi
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.contactPerson}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, contactPerson: e.target.value })}
+                    placeholder="Örn: Ahmet Yılmaz"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Telefon Numarası
+                  </label>
+                  <input
+                    type="tel"
+                    value={supplierFormData.phone}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, phone: e.target.value })}
+                    placeholder="05XX XXX XX XX"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-orange-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-amber-300">
+                    Açılış / Devir Borcu (₺)
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.openingBalance}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, openingBalance: e.target.value.replace(/[^0-9.,]/g, '') })}
+                    placeholder="0,00 ₺ (Varsa açılış borcu)"
+                    className="w-full bg-[#0d1117] border border-amber-500/40 rounded-lg px-3 py-2 text-xs text-white font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Adres & Notlar
+                </label>
+                <textarea
+                  rows={2}
+                  value={supplierFormData.address}
+                  onChange={(e) => setSupplierFormData({ ...supplierFormData, address: e.target.value })}
+                  placeholder="Firma adresi, IBAN veya özel notlar..."
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-xs text-white focus:border-orange-500 focus:outline-none resize-none font-sans"
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#30363d]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSupplierOpen(false)}
+                  className="px-4 py-2 bg-[#21262d] hover:bg-[#30363d] text-gray-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center space-x-1.5 px-5 py-2 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-xs font-bold transition shadow-lg cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Tedarikçiyi Kaydet</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* SUCCESS TOAST */}
+      {successToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2 font-mono text-xs">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{successToast}</span>
+        </div>
+      )}
     </div>
   );
 };

@@ -120,15 +120,6 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
     });
   };
 
-  const handleSyncToActualCash = () => {
-    if (!currentEntry || !onUpdateEntry || !reg) return;
-    onUpdateEntry({
-      ...currentEntry,
-      actualCashInHand: reg.expectedCash,
-      updatedAt: new Date().toISOString(),
-    });
-  };
-
   const finalizeClosing = (carryOver?: number, diff?: number) => {
     const finalCarryOver = carryOver !== undefined ? carryOver : reg.expectedCash;
     const finalDiff = diff !== undefined ? diff : Math.round((finalCarryOver - reg.openingCash) * 100) / 100;
@@ -168,7 +159,7 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
     // Fiili sayılan kasa ile beklenen kasa tutuyorsa
     const hasCashDifference = Math.abs(reg.cashDifference) >= 0.01;
     if (hasCashDifference) {
-      setCarryOverInput(reg.expectedCash.toString());
+      setCarryOverInput((reg.actualCashInHand > 0 ? reg.actualCashInHand : reg.expectedCash).toString());
       setIsCarryOverModalOpen(true);
       return;
     }
@@ -526,20 +517,36 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                   </div>
                 </div>
 
-                {/* 7. Actual Counted Cash & Quick Sync Button */}
+                {/* 7. Actual Counted Cash (Fiziki Sayılan Kasa Tutarı - Daima 0 Olarak Başlar, Kullanıcı Elle Doldurur) */}
                 <div className="bg-[#0d1117] p-3 rounded-xl border border-[#30363d] space-y-2 shadow-sm">
                   <div className="flex items-center justify-between">
-                    <label className="block text-xs font-bold text-white uppercase">
-                      (Fiili) Sayılan Kasa Tutarı *
+                    <label className="block text-xs font-bold text-white uppercase flex items-center space-x-1.5">
+                      <span>(Fiili) Sayılan Kasa Tutarı *</span>
+                      <span className="text-[10px] text-gray-400 font-normal font-sans">(Elle Sayım)</span>
                     </label>
                     {!isClosed && (
-                      <button
-                        type="button"
-                        onClick={handleSyncToActualCash}
-                        className="text-xs text-orange-400 hover:text-orange-300 font-bold underline cursor-pointer"
-                      >
-                        Kalan Nakiti Yaz ({formatCurrency(reg.expectedCash)})
-                      </button>
+                      <div className="flex items-center space-x-2">
+                        {Number(currentEntry.actualCashInHand) > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onUpdateEntry({
+                                ...currentEntry,
+                                actualCashInHand: 0,
+                                updatedAt: new Date().toISOString(),
+                              })
+                            }
+                            className="text-[11px] text-gray-400 hover:text-rose-400 font-semibold underline cursor-pointer"
+                            title="Sayılan kasa tutarını 0'a eşitler"
+                          >
+                            0'la (Sıfırla)
+                          </button>
+                        ) : (
+                          <span className="text-[10px] text-gray-500 font-medium font-sans">
+                            (Varsayılan: 0 ₺)
+                          </span>
+                        )}
+                      </div>
                     )}
                   </div>
 
@@ -553,9 +560,12 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                         updatedAt: new Date().toISOString(),
                       })
                     }
-                    placeholder="Fiziki sayılan kasa..."
+                    placeholder="0,00 ₺ (Fiziki sayılan kasayı giriniz)"
                     className="px-3 py-1.5 text-base font-bold text-white focus:border-orange-500 disabled:opacity-60"
                   />
+                  <p className="text-[10px] text-gray-400 font-sans leading-tight">
+                    Fiziki kasada sayılan nakit mevcudunu elle yazınız. Otomatik doldurulmaz, daima 0 ₺ olarak başlar.
+                  </p>
                 </div>
               </div>
 

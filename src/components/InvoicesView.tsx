@@ -21,8 +21,10 @@ import {
   Sparkles,
   Tag,
   Percent,
+  X,
+  Save,
 } from 'lucide-react';
-import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType, FinancialAccount } from '../types';
+import { Invoice, InvoiceItem, InvoicePayment, PaymentStatus, TabType, FinancialAccount, RegisteredSupplier, SUPPLIER_CATEGORIES } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput } from '../utils/formatters';
 import { exportInvoicesToExcel } from '../utils/excelExport';
 import { CashierStepFooter } from './CashierStepFooter';
@@ -215,10 +217,12 @@ interface InvoicesViewProps {
   selectedDate: string;
   invoices: Invoice[];
   accounts?: FinancialAccount[];
+  registeredSuppliers?: RegisteredSupplier[];
   onAddInvoice: (invoice: Omit<Invoice, 'id' | 'createdAt'>) => void;
   onUpdateInvoice: (invoice: Invoice) => void;
   onDeleteInvoice: (id: string) => void;
   onAddPayment: (invoiceId: string, payment: Omit<InvoicePayment, 'id' | 'createdAt'>) => void;
+  onAddSupplier?: (supplierData: Omit<RegisteredSupplier, 'id' | 'createdAt'>) => void;
   onNavigate?: (tab: TabType) => void;
 }
 
@@ -226,10 +230,12 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
   selectedDate,
   invoices,
   accounts = [],
+  registeredSuppliers = [],
   onAddInvoice,
   onUpdateInvoice,
   onDeleteInvoice,
   onAddPayment,
+  onAddSupplier,
   onNavigate,
 }) => {
   const [statusFilter, setStatusFilter] = useState<'all' | PaymentStatus>('all');
@@ -270,6 +276,62 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
     accountId: 'gunluk-kasa',
   });
 
+  // Add Supplier Modal State
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
+  const [supplierFormData, setSupplierFormData] = useState({
+    name: '',
+    category: 'Toptan Gıda',
+    taxNumber: '',
+    taxOffice: '',
+    contactPerson: '',
+    phone: '',
+    openingBalance: '',
+    address: '',
+    notes: '',
+  });
+  const [supplierFormError, setSupplierFormError] = useState<string | null>(null);
+  const [supplierToast, setSupplierToast] = useState<string | null>(null);
+
+  const handleSaveSupplier = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supplierFormData.name.trim()) {
+      setSupplierFormError('Lütfen firma / tedarikçi ünvanını yazınız.');
+      return;
+    }
+
+    const openingBalanceNum = supplierFormData.openingBalance
+      ? parseFloat(supplierFormData.openingBalance.replace(',', '.')) || 0
+      : undefined;
+
+    if (onAddSupplier) {
+      onAddSupplier({
+        name: supplierFormData.name.trim(),
+        category: supplierFormData.category,
+        taxNumber: supplierFormData.taxNumber.trim() || undefined,
+        taxOffice: supplierFormData.taxOffice.trim() || undefined,
+        contactPerson: supplierFormData.contactPerson.trim() || undefined,
+        phone: supplierFormData.phone.trim() || undefined,
+        openingBalance: openingBalanceNum,
+        address: supplierFormData.address.trim() || undefined,
+        notes: supplierFormData.notes.trim() || undefined,
+      });
+
+      // If user was filling invoice form, automatically set supplier name and info
+      if (isInvoiceModalOpen) {
+        setInvoiceForm((prev) => ({
+          ...prev,
+          supplierName: supplierFormData.name.trim(),
+          taxNumber: supplierFormData.taxNumber.trim() || prev.taxNumber,
+          category: supplierFormData.category || prev.category,
+        }));
+      }
+
+      setSupplierToast(`"${supplierFormData.name.trim()}" firması başarıyla eklendi.`);
+      setTimeout(() => setSupplierToast(null), 3000);
+      setIsAddSupplierModalOpen(false);
+    }
+  };
+
   // Calculate high-level metrics
   const activeInvoices = invoices.filter((i) => i.isActive);
 
@@ -285,14 +347,31 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
         map.set(key, {
           name,
           taxNumber: i.taxNumber?.trim() || '',
-          category: i.category || 'Manav',
+          category: i.category || 'Toptan Gıda',
         });
       } else if (!existing.taxNumber && i.taxNumber?.trim()) {
         existing.taxNumber = i.taxNumber.trim();
       }
     });
+
+    (registeredSuppliers || []).forEach((r) => {
+      const name = (r.name || '').trim();
+      if (!name) return;
+      const key = name.toLowerCase();
+      const existing = map.get(key);
+      if (!existing) {
+        map.set(key, {
+          name,
+          taxNumber: r.taxNumber?.trim() || '',
+          category: r.category || 'Toptan Gıda',
+        });
+      } else if (!existing.taxNumber && r.taxNumber?.trim()) {
+        existing.taxNumber = r.taxNumber.trim();
+      }
+    });
+
     return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'tr-TR'));
-  }, [activeInvoices]);
+  }, [activeInvoices, registeredSuppliers]);
 
   const handleSupplierNameChange = (val: string) => {
     const trimmed = val.trim().toLowerCase();
@@ -636,7 +715,32 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center space-x-2">
+        <div className="flex items-center space-x-2 flex-wrap gap-y-2">
+          {onAddSupplier && (
+            <button
+              onClick={() => {
+                setSupplierFormData({
+                  name: '',
+                  category: 'Toptan Gıda',
+                  taxNumber: '',
+                  taxOffice: '',
+                  contactPerson: '',
+                  phone: '',
+                  openingBalance: '',
+                  address: '',
+                  notes: '',
+                });
+                setSupplierFormError(null);
+                setIsAddSupplierModalOpen(true);
+              }}
+              className="flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold px-3.5 py-2 rounded-lg shadow-md transition cursor-pointer font-mono"
+              title="Yeni tedarikçi firma kartı ekle"
+            >
+              <Building2 className="w-4 h-4" />
+              <span>+ Tedarikçi Ekle</span>
+            </button>
+          )}
+
           <button
             onClick={() => exportInvoicesToExcel(invoices)}
             className="flex items-center space-x-1.5 bg-[#21262d] hover:bg-[#30363d] text-gray-200 text-xs font-semibold px-3 py-2 rounded-lg border border-[#30363d] transition cursor-pointer font-mono"
@@ -1142,14 +1246,36 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
                 return (
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                     <div>
-                      <label className="block font-semibold text-gray-300 mb-1 flex items-center justify-between">
-                        <span>Firma / Tedarikçi Adı *</span>
-                        {existingSuppliers.length > 0 && (
-                          <span className="text-[10px] text-orange-400 font-normal">
-                            (Öneri için yazın)
-                          </span>
+                      <div className="flex items-center justify-between mb-1">
+                        <label className="font-semibold text-gray-300">
+                          <span>Firma / Tedarikçi Adı *</span>
+                        </label>
+                        {onAddSupplier && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setSupplierFormData({
+                                name: invoiceForm.supplierName || '',
+                                category: invoiceForm.category || 'Toptan Gıda',
+                                taxNumber: invoiceForm.taxNumber || '',
+                                taxOffice: '',
+                                contactPerson: '',
+                                phone: '',
+                                openingBalance: '',
+                                address: '',
+                                notes: '',
+                              });
+                              setSupplierFormError(null);
+                              setIsAddSupplierModalOpen(true);
+                            }}
+                            className="text-[10px] text-emerald-400 hover:text-emerald-300 font-bold underline cursor-pointer flex items-center space-x-0.5"
+                            title="Yeni tedarikçi firma kartı aç"
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>+ Yeni Firma Ekle</span>
+                          </button>
                         )}
-                      </label>
+                      </div>
                       <input
                         type="text"
                         required
@@ -1672,6 +1798,191 @@ export const InvoicesView: React.FC<InvoicesViewProps> = ({
               </div>
             </form>
           </div>
+        </div>
+      )}
+
+      {/* Add Supplier Modal */}
+      {isAddSupplierModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm">
+          <div className="bg-[#161b22] border border-[#30363d] rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[#30363d] bg-[#0d1117]">
+              <div className="flex items-center space-x-2.5">
+                <div className="p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400">
+                  <Building2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">Yeni Tedarikçi Firma Ekle</h3>
+                  <p className="text-xs text-gray-400">Tedarikçi firma ve cari kart bilgilerini kaydedin</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddSupplierModalOpen(false)}
+                className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-[#21262d] transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body Form */}
+            <form onSubmit={handleSaveSupplier} className="p-6 space-y-4 overflow-y-auto">
+              {supplierFormError && (
+                <div className="p-3 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs flex items-center space-x-2">
+                  <AlertCircle className="w-4 h-4 shrink-0" />
+                  <span>{supplierFormError}</span>
+                </div>
+              )}
+
+              {/* 1. Firma Adı & Kategori */}
+              <div className="space-y-1.5">
+                <label className="block text-xs font-bold text-gray-200 uppercase">
+                  Firma / Tedarikçi Ünvanı *
+                </label>
+                <input
+                  type="text"
+                  required
+                  value={supplierFormData.name}
+                  onChange={(e) => setSupplierFormData({ ...supplierFormData, name: e.target.value })}
+                  placeholder="Örn: Metro Grossmarket, Özlem Kasap, Sütaş vb."
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3.5 py-2.5 text-sm text-white focus:border-emerald-500 focus:outline-none font-sans font-semibold"
+                  autoFocus
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Sektör / Faaliyet Kategorisi
+                  </label>
+                  <select
+                    value={supplierFormData.category}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, category: e.target.value })}
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none cursor-pointer"
+                  >
+                    {SUPPLIER_CATEGORIES.map((cat) => (
+                      <option key={cat} value={cat}>
+                        {cat}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Vergi / T.C. Kimlik No (VKN / TCKN)
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.taxNumber}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, taxNumber: e.target.value })}
+                    placeholder="10 veya 11 haneli numara"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Vergi Dairesi
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.taxOffice}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, taxOffice: e.target.value })}
+                    placeholder="Örn: Beyoğlu V.D."
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Yetkili Kişi
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.contactPerson}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, contactPerson: e.target.value })}
+                    placeholder="Örn: Ahmet Yılmaz"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-gray-300">
+                    Telefon Numarası
+                  </label>
+                  <input
+                    type="tel"
+                    value={supplierFormData.phone}
+                    onChange={(e) => setSupplierFormData({ ...supplierFormData, phone: e.target.value })}
+                    placeholder="05XX XXX XX XX"
+                    className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-semibold text-amber-300">
+                    Açılış / Devir Borcu (₺)
+                  </label>
+                  <input
+                    type="text"
+                    value={supplierFormData.openingBalance}
+                    onChange={(e) =>
+                      setSupplierFormData({
+                        ...supplierFormData,
+                        openingBalance: e.target.value.replace(/[^0-9.,]/g, ''),
+                      })
+                    }
+                    placeholder="0,00 ₺ (Varsa açılış borcu)"
+                    className="w-full bg-[#0d1117] border border-amber-500/40 rounded-lg px-3 py-2 text-xs text-white font-bold focus:border-amber-400 focus:outline-none"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-semibold text-gray-300">
+                  Adres & Notlar
+                </label>
+                <textarea
+                  rows={2}
+                  value={supplierFormData.address}
+                  onChange={(e) => setSupplierFormData({ ...supplierFormData, address: e.target.value })}
+                  placeholder="Firma adresi, IBAN veya özel notlar..."
+                  className="w-full bg-[#0d1117] border border-[#30363d] rounded-lg p-3 text-xs text-white focus:border-emerald-500 focus:outline-none resize-none font-sans"
+                />
+              </div>
+
+              {/* Modal Footer */}
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-[#30363d]">
+                <button
+                  type="button"
+                  onClick={() => setIsAddSupplierModalOpen(false)}
+                  className="px-4 py-2 bg-[#21262d] hover:bg-[#30363d] text-gray-300 rounded-lg text-xs font-semibold transition cursor-pointer"
+                >
+                  Vazgeç
+                </button>
+                <button
+                  type="submit"
+                  className="flex items-center space-x-1.5 px-5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold transition shadow-lg cursor-pointer"
+                >
+                  <Save className="w-4 h-4" />
+                  <span>Tedarikçiyi Kaydet</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Supplier Added Toast */}
+      {supplierToast && (
+        <div className="fixed bottom-6 right-6 z-50 bg-emerald-600 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center space-x-2 font-mono text-xs">
+          <CheckCircle2 className="w-4 h-4" />
+          <span>{supplierToast}</span>
         </div>
       )}
       {/* Sequential Cashier Workflow Navigation Footer */}

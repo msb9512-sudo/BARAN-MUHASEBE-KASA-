@@ -147,10 +147,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         const totalOutflow = dailyCashExpenses + dailyInvoiceCash + withdrawals;
         const autoRemainingCash = openingCash + autoCash - totalOutflow;
 
-        const currentActualCash = Number(currentEntry.actualCashInHand) || 0;
-        const targetActualCash = currentActualCash > 0
-          ? currentActualCash
-          : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+        const targetActualCash = Number(currentEntry.actualCashInHand) || 0;
 
         const isGroupReportWithoutCardSales = rawReportCC <= 0;
 
@@ -251,8 +248,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + autoCash - reg.totalCashOutflow;
 
-    const currentActual = Number(currentEntry.actualCashInHand) || 0;
-    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+    const targetActual = Number(currentEntry.actualCashInHand) || 0;
 
     onUpdateEntry({
       ...currentEntry,
@@ -328,8 +324,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + calculatedCashSales - reg.totalCashOutflow;
 
-    const currentActual = Number(currentEntry.actualCashInHand) || 0;
-    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+    const targetActual = Number(currentEntry.actualCashInHand) || 0;
 
     onUpdateEntry({
       ...currentEntry,
@@ -377,7 +372,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
         creditCardSales: newPosTotal,
         cashSales: autoCashSales,
       },
-      actualCashInHand: autoRemainingCash,
+      actualCashInHand: Number(currentEntry.actualCashInHand) || 0,
       updatedAt: new Date().toISOString(),
     });
   };
@@ -408,8 +403,7 @@ export const DailyCashAndVegaView: React.FC<DailyCashAndVegaViewProps> = ({
     const openingCash = Number(currentEntry.openingCash) || 0;
     const autoRemainingCash = openingCash + autoCashSales - reg.totalCashOutflow;
 
-    const currentActual = Number(currentEntry.actualCashInHand) || 0;
-    const targetActual = currentActual > 0 ? currentActual : (autoRemainingCash >= 0 ? autoRemainingCash : 0);
+    const targetActual = Number(currentEntry.actualCashInHand) || 0;
 
     onUpdateEntry({
       ...currentEntry,

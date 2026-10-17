@@ -242,19 +242,7 @@ export const VegaImportModal: React.FC<VegaImportModalProps> = ({
     // - 0 ise: openingCash + cashSales - totalCashOutflow hesapla,
     //   sonuç 0 veya daha büyükse yaz; negatifse 0 bırak.
     // VegaImportModal'daki "autoSetActualCash" davranışı da aynı kurala uysun.
-    const currentActualCash = Number(currentEntry.actualCashInHand) || 0;
-    let targetActualCash: number;
-
-    if (!autoSetActualCash) {
-      targetActualCash = currentActualCash;
-    } else {
-      if (currentActualCash > 0) {
-        targetActualCash = currentActualCash;
-      } else {
-        const remaining = openingCash + finalCashSales - totalCashOutflow;
-        targetActualCash = remaining >= 0 ? remaining : 0;
-      }
-    }
+    const targetActualCash = Number(currentEntry.actualCashInHand) || 0;
 
     const finalEntry: DailyEntry = {
       ...currentEntry,

@@ -11,6 +11,7 @@ import {
   BanknoteCounts,
   FinancialAccount,
   AccountTransaction,
+  RegisteredSupplier,
 } from '../types';
 import { getTodayIsoDate } from './formatters';
 import {
@@ -32,6 +33,7 @@ const STORAGE_KEYS = {
   MASTER_SAFE: 'restoran_muhasebe_master_safe_v1',
   ACCOUNTS: 'restoran_muhasebe_accounts_v1',
   ACCOUNT_TRANSACTIONS: 'restoran_muhasebe_account_txs_v1',
+  REGISTERED_SUPPLIERS: 'restoran_muhasebe_suppliers_v1',
 };
 
 export interface RestaurantProfile {
@@ -280,7 +282,7 @@ export function getOrCreateDailyEntry(
     status: 'draft',
     openingCash: autoOpeningCash,
     isOpeningCashManual: false,
-    actualCashInHand: autoOpeningCash,
+    actualCashInHand: 0,
     notes: '',
     vegaReport: {
       totalSales: 0,
@@ -323,6 +325,28 @@ export function loadOpenAccountCustomers(): OpenAccountCustomer[] {
   } catch (e) {
     console.error('Failed to load open account customers', e);
     return [];
+  }
+}
+
+export function loadRegisteredSuppliers(): RegisteredSupplier[] {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.REGISTERED_SUPPLIERS);
+    if (!raw) {
+      return [];
+    }
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to load registered suppliers', e);
+    return [];
+  }
+}
+
+export function saveRegisteredSuppliers(suppliers: RegisteredSupplier[]): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.REGISTERED_SUPPLIERS, JSON.stringify(suppliers));
+  } catch (e) {
+    console.error('Failed to save registered suppliers', e);
   }
 }
 
@@ -803,6 +827,7 @@ export interface AppState {
   posDevices: POSDevice[];
   categories: ExpenseCategory[];
   profile: RestaurantProfile;
+  registeredSuppliers?: RegisteredSupplier[];
 }
 
 export function loadAppState(): AppState {
@@ -826,6 +851,7 @@ export function loadAppState(): AppState {
     posDevices: loadPOSDevices(),
     categories: loadExpenseCategories(),
     profile: loadRestaurantProfile(),
+    registeredSuppliers: loadRegisteredSuppliers(),
   };
 }
 
@@ -841,6 +867,7 @@ export function saveAppState(state: AppState): void {
   savePOSDevices(state.posDevices);
   saveExpenseCategories(state.categories);
   saveRestaurantProfile(state.profile);
+  saveRegisteredSuppliers(state.registeredSuppliers || []);
 }
 
 export function resetToSampleData(): AppState {

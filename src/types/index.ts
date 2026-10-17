@@ -282,6 +282,32 @@ export interface Invoice {
   isActive: boolean;
   createdAt: string;
 }
+export const SUPPLIER_CATEGORIES = [
+  'Toptan Gıda',
+  'Kasap & Et Ürünleri',
+  'Manav & Sebze/Meyve',
+  'İçecek & Meşrubat',
+  'Unlu Mamuller & Ekmek',
+  'Süt & Şarküteri',
+  'Sarf & Temizlik',
+  'Ambalaj & Paketleme',
+  'Hizmet & Bakım',
+  'Diğer',
+] as const;
+
+export interface RegisteredSupplier {
+  id: string;
+  name: string;
+  taxNumber?: string;
+  taxOffice?: string;
+  phone?: string;
+  contactPerson?: string;
+  category?: string;
+  address?: string;
+  notes?: string;
+  openingBalance?: number;
+  createdAt: string;
+}
 
 export interface SupplierGroup {
   id: string;
@@ -295,6 +321,7 @@ export interface SupplierGroup {
   remainingDebt: number;
   lastTransactionDate: string;
   invoices: Invoice[];
+  registeredSupplier?: RegisteredSupplier;
 }
 
 export interface RestaurantProfile {
