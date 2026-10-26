@@ -35,7 +35,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
   const isElectron = typeof window !== 'undefined' && !!window.electronAPI?.isElectron;
 
   // Local version state
-  const [currentVersion, setCurrentVersion] = useState<string>('1.0.17');
+  const [currentVersion, setCurrentVersion] = useState<string>('1.0.18');
   const [isLoadingLocalVersion, setIsLoadingLocalVersion] = useState(true);
   const [userDataPath, setUserDataPath] = useState<string | null>(null);
 
@@ -674,54 +674,54 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
               </div>
             )}
 
-            {/* v1.0.17 Güncel Sürüm İçeriği ve Değişiklik Notları */}
+            {/* v1.0.18 Güncel Sürüm İçeriği ve Değişiklik Notları */}
             <div className="p-4 rounded-xl bg-[#0d1117] border border-[#30363d] space-y-3 text-xs font-mono">
               <div className="flex items-center justify-between border-b border-[#21262d] pb-2">
                 <div className="flex items-center space-x-2">
                   <GitCommit className="w-4 h-4 text-orange-400" />
                   <span className="font-bold text-white uppercase tracking-wider">
-                    v1.0.17 Sürüm İçeriği & Yenilikler
+                    v1.0.18 Sürüm İçeriği & Yenilikler
                   </span>
                 </div>
                 <span className="px-2 py-0.5 rounded bg-orange-500/10 text-orange-400 border border-orange-500/20 text-[10px] font-bold">
-                  v1.0.17 Güncel
+                  v1.0.18 Güncel
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1 text-[11px] text-gray-300">
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>💵 0 ₺ Fiili Kasa Sayımı Güvencesi</span>
+                    <span>📊 Dinamik Raporlar & İcmal Ay Listesi</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Günlük Kasa Kapanış ekranında (Fiili) Sayılan Kasa Tutarı otomatik doldurulmaz; her zaman 0,00 ₺ olarak başlar ve sayılan gerçek nakit mevcudunun elle girilmesi sağlanır.
+                    Aylık Kasa ve Muhasebe İcmal raporundaki ay seçici dinamik yapıldı; sistemde kayıtlı tüm ayları ve mevcut ayı otomatik listeler, varsayılan olarak veri bulunan en güncel aya odaklanır.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>🏢 Faturaları Yönet Ekranında "+ Tedarikçi Ekle"</span>
+                    <span>🔄 Kesintisiz Canlı Günlük Kasa Devir Zinciri</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Fatura & Tedarikçi Yönetim Modülü üst araç çubuğuna ve fatura giriş formuna doğrudan yeni firma/tedarikçi kartı açmayı sağlayan "+ Tedarikçi Ekle" butonu entegre edildi.
+                    Önceki gün kapatılmamış olsa dahi sonraki günün açılış kasası önceki günün canlı hesaplanan beklenen nakit kasasından devralınır. Geçmişe dönük satış/gider girişinde tüm zincir anında güncellenir.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>⚡ Doğrudan ve Hızlı Cari Tanımlama</span>
+                    <span>🚫 Boş Gün Kaydı Engelleme Güvencesi</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Fatura girerken veya fatura modülünden ayrılmadan açılan firma carisi anında kaydedilir ve fatura tedarikçi listesine otomatik seçili olarak aktarılır.
+                    Günler arasında gezinirken veri girilmemiş boş günlerin veritabanına kaydedilmesi engellendi; kayıt yalnızca ilk veri girildiğinde oluşturulur ve gereksiz kayıtlar temizlenir.
                   </p>
                 </div>
 
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#21262d] space-y-1">
                   <div className="font-bold text-orange-300 flex items-center space-x-1.5">
-                    <span>🛡️ Sürüm v1.0.17 Otomatik Güncelleme</span>
+                    <span>⚡ Canlı Günlük Kasa Bakiyesi (Hesaplar)</span>
                   </div>
                   <p className="text-gray-400 leading-relaxed">
-                    Masaüstü ve web ortamı için versiyon takip sistemi, version.txt ve manifest dosyaları v1.0.17 sürümüne yükseltildi.
+                    Hesaplar ekranındaki Günlük Kasa bakiyesi, veri girilmiş en son günün canlı kasasını ve sonrasındaki hareketleri yansıtarak her zaman güncel bakiye sağlar.
                   </p>
                 </div>
               </div>
@@ -1001,10 +1001,10 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <span>version.txt Dosyasını Güncelleyin</span>
                 </div>
                 <p className="text-gray-400 pl-7 leading-relaxed">
-                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.17</code>):
+                  Deponuzun ana dizinindeki <code>version.txt</code> dosyasına yeni sürüm numarasını yazın (Örn: <code>1.0.18</code>):
                 </p>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 font-mono text-emerald-400">
-                  1.0.17
+                  1.0.18
                 </div>
               </div>
 
@@ -1015,7 +1015,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                 </div>
                 <div className="p-3 bg-[#161b22] rounded-lg border border-[#30363d] ml-7 space-y-1 font-mono text-gray-200">
                   <div>git add version.txt</div>
-                  <div>git commit -m "release: v1.0.17"</div>
+                  <div>git commit -m "release: v1.0.18"</div>
                   <div className="text-orange-400">git push origin main</div>
                 </div>
               </div>
@@ -1030,7 +1030,7 @@ export const SoftwareUpdateSection: React.FC<SoftwareUpdateSectionProps> = ({ on
                   <li><code>version.txt</code> sürümünü <code>package.json</code> ile senkronize eder.</li>
                   <li><code>npm run build</code> ile React kodlarını derler.</li>
                   <li><code>electron-builder --win --publish always</code> komutuyla Windows NSIS `.exe` kurulum dosyasını oluşturur.</li>
-                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.17</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
+                  <li>GitHub Releases bölümünde otomatik olarak <code>v1.0.18</code> release'i açar ve `.exe` ile <code>latest.yml</code> dosyalarını oraya ekler.</li>
                 </ul>
               </div>
 
