@@ -45,7 +45,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { SettingsView, SettingsSectionId } from './components/SettingsView';
 import { GoogleWorkspaceView } from './components/GoogleWorkspaceView';
 import { Sidebar } from './components/Sidebar';
-import { getPreviousDayClosingCarryOver } from './utils/calculations';
+import { getPreviousDayClosingCarryOver, isDailyEntryEmpty } from './utils/calculations';
 import { getTodayIsoDate, formatCurrency, formatDateTR } from './utils/formatters';
 import { loadThemeSettings, applyThemeToDOM } from './utils/theme';
 
@@ -135,7 +135,10 @@ export function App() {
         const autoDevir = getPreviousDayClosingCarryOver(
           date,
           appState.entries,
-          gunlukKasaAccount
+          gunlukKasaAccount,
+          appState.expenses,
+          appState.invoices,
+          appState.accountTransactions
         );
         if (entry.openingCash !== autoDevir) {
           entry = {
@@ -151,7 +154,10 @@ export function App() {
     const autoOpeningCash = getPreviousDayClosingCarryOver(
       date,
       appState.entries,
-      gunlukKasaAccount
+      gunlukKasaAccount,
+      appState.expenses,
+      appState.invoices,
+      appState.accountTransactions
     );
 
     return {
@@ -197,13 +203,28 @@ export function App() {
 
   // Handlers for Entry Updates
   const handleUpdateEntry = (updated: DailyEntry) => {
-    setAppState((prev) => ({
-      ...prev,
-      entries: {
-        ...prev.entries,
-        [updated.date]: updated,
-      },
-    }));
+    setAppState((prev) => {
+      // Gün seçicide göz atıldığında veya boş bırakıldığında DailyEntry oluşturulmasın
+      if (isDailyEntryEmpty(updated)) {
+        if (!prev.entries[updated.date]) {
+          return prev;
+        }
+        const updatedEntries = { ...prev.entries };
+        delete updatedEntries[updated.date];
+        return {
+          ...prev,
+          entries: updatedEntries,
+        };
+      }
+
+      return {
+        ...prev,
+        entries: {
+          ...prev.entries,
+          [updated.date]: updated,
+        },
+      };
+    });
   };
 
   // Expenses Handlers

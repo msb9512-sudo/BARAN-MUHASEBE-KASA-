@@ -19,6 +19,7 @@ import {
   isCashExpenseMethod,
   getAnaKasaBalanceBeforeDate,
   getPreviousDayClosingCarryOver,
+  hasDailyEntryData,
 } from './calculations';
 
 const STORAGE_KEYS = {
@@ -604,10 +605,28 @@ export function calculateAccountBalance(
     const invList: Invoice[] = invoices || loadInvoices();
 
     const sorted = [...entryList].filter((e) => e && e.date).sort((a, b) => b.date.localeCompare(a.date));
-    const activeEntry = sorted[0];
+    const activeEntry = sorted.find((e) => hasDailyEntryData(e, expenses, invList, transactions)) || sorted[0];
 
     if (activeEntry) {
-      const reg = calculateDailyRegister(activeEntry, expenses, invList, transactions, account);
+      let effectiveEntry = activeEntry;
+      if (activeEntry.status !== 'closed' && !activeEntry.isOpeningCashManual) {
+        const liveCarryOver = getPreviousDayClosingCarryOver(
+          activeEntry.date,
+          entryList,
+          account,
+          expenses,
+          invList,
+          transactions
+        );
+        if (effectiveEntry.openingCash !== liveCarryOver) {
+          effectiveEntry = {
+            ...effectiveEntry,
+            openingCash: liveCarryOver,
+          };
+        }
+      }
+
+      const reg = calculateDailyRegister(effectiveEntry, expenses, invList, transactions, account);
 
       // Son DailyEntry kaydının tarihinden SONRA yapılmış tüm gunluk-kasa işlemleri
       let postDeposits = 0;

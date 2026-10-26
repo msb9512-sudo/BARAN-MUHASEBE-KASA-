@@ -276,61 +276,161 @@ export function calculateDailyRegister(
 
 
 /**
- * Zincirleme (chain) devir mantığı:
+ * Checks if a daily entry is completely empty (no recorded transactions, sales, withdrawals, manual devir, or closure)
+ */
+export function isDailyEntryEmpty(entry: DailyEntry | null | undefined): boolean {
+  if (!entry) return true;
+  if (entry.status === 'closed') return false;
+  if (entry.isOpeningCashManual) return false;
+  if (Number(entry.actualCashInHand) > 0) return false;
+  if (entry.cashWithdrawals && entry.cashWithdrawals.length > 0) return false;
+  if (entry.notes && entry.notes.trim().length > 0) return false;
+  if (Number(entry.vegaReport?.totalSales) > 0) return false;
+  if (Number(entry.vegaReport?.cashSales) > 0) return false;
+  if (Number(entry.vegaReport?.creditCardSales) > 0) return false;
+  if (Number(entry.vegaReport?.otherSales) > 0) return false;
+  if (Number(entry.vegaReport?.grossProductSales) > 0) return false;
+  if (entry.posReports && entry.posReports.some((p) => Number(p.creditCardTotal) > 0)) return false;
+  if (entry.vegaGroups && entry.vegaGroups.some((g) => Number(g.amount) > 0)) return false;
+  return true;
+}
+
+/**
+ * Checks if a specific day has any actual financial data (sales, closure, expenses, invoices, account transactions)
+ */
+export function hasDailyEntryData(
+  entry: DailyEntry | null | undefined,
+  expenses: CashExpense[] = [],
+  invoices: Invoice[] = [],
+  accountTransactions: AccountTransaction[] = []
+): boolean {
+  if (!entry || !entry.date) return false;
+  if (!isDailyEntryEmpty(entry)) return true;
+  if (expenses.some((e) => e.isActive && e.date === entry.date && isCashExpenseMethod(e.paidBy))) return true;
+  if (
+    invoices.some(
+      (inv) =>
+        inv.isActive &&
+        (inv.payments || []).some(
+          (p) => p.date === entry.date && (!p.accountId || p.accountId === 'gunluk-kasa')
+        )
+    )
+  )
+    return true;
+  if (
+    accountTransactions.some(
+      (tx) =>
+        tx.date === entry.date &&
+        (tx.accountId === 'gunluk-kasa' || tx.fromAccountId === 'gunluk-kasa' || tx.toAccountId === 'gunluk-kasa')
+    )
+  )
+    return true;
+  return false;
+}
+
+/**
  * Her günün openingCash (o günün açılış avansı) değeri:
- * - Bir önceki günün DailyEntry kaydının closingCarryOver (gün sonu kapanışta kalan tutar) değerini otomatik devralır.
- * - Gün N'in openingCash'i = Gün N-1'in closingCarryOver'ı.
- * - İlk gün (hiç önceki kayıt yoksa) openingCash, Günlük İşleyiş Kasası (id: 'gunluk-kasa') hesabının
- *   "Başlangıç Bakiyesi (Avans)" değeri ile başlar.
+ * - Bir önceki gün kapatılmışsa closingCarryOver değerini devralır.
+ * - Bir önceki gün KAPATILMAMIŞ olsa bile önceki günün canlı hesaplanan "beklenen nakit kasa"
+ *   değerinden (açılış + nakit satış - nakit giderler - nakit fatura ödemeleri ± Günlük Kasa virman/yatır/çek) gelir.
+ * - Zincire göre canlı çalışır; önceki güne satış/gider eklendiğinde sonraki açık günlerin devri de otomatik güncellenir.
+ * - Kullanıcının elle girdiği açılış (isOpeningCashManual) korunur.
+ * - İlk gün (hiç önceki kayıt yoksa) Günlük Kasa hesabının başlangıç bakiyesinden (avans) başlar.
  */
 export function getPreviousDayClosingCarryOver(
   date: string,
   entries: DailyEntry[] | Record<string, DailyEntry> = [],
-  gunlukKasaAccount?: FinancialAccount
+  gunlukKasaAccount?: FinancialAccount,
+  expenses?: CashExpense[],
+  invoices?: Invoice[],
+  accountTransactions?: AccountTransaction[]
 ): number {
   const entryList: DailyEntry[] = Array.isArray(entries) ? entries : Object.values(entries || {});
 
-  // date'den önceki günleri bul ve tarihe göre azalan (en yeniden en eskiye) sırala
+  // date'den önceki günleri bul ve kronolojik (en eskiden en yeniye) sırala
   const prevEntries = entryList
-    .filter((e) => e && e.date && e.date < date)
-    .sort((a, b) => b.date.localeCompare(a.date));
+    .filter((e) => Boolean(e && e.date && e.date < date))
+    .sort((a, b) => a.date.localeCompare(b.date));
 
-  if (prevEntries.length > 0) {
-    const prev = prevEntries[0];
-    if (prev.closingCarryOver !== undefined && prev.closingCarryOver !== null) {
-      return Number(prev.closingCarryOver) || 0;
-    }
-    // Önceki kayıt varsa ama closingCarryOver henüz atanmamışsa
-    if (prev.status === 'closed' && prev.actualCashInHand !== undefined && prev.actualCashInHand > 0) {
-      return Number(prev.actualCashInHand) || 0;
-    }
-    return Number(prev.actualCashInHand) || Number(prev.openingCash) || 0;
-  }
-
-  // İlk gün (hiç önceki kayıt yoksa) openingCash, Günlük Kasa (id: 'gunluk-kasa') initialBalance ile başlar
-  if (gunlukKasaAccount && gunlukKasaAccount.id === 'gunluk-kasa') {
-    return Number(gunlukKasaAccount.initialBalance) || 0;
-  }
-
-  // Fallback: localStorage'dan Günlük Kasa ('gunluk-kasa') başlangıç bakiyesini bul
-  try {
-    if (typeof window !== 'undefined' && window.localStorage) {
-      const raw = localStorage.getItem('restoran_muhasebe_accounts_v1');
-      if (raw) {
-        const accounts: FinancialAccount[] = JSON.parse(raw);
-        const gk = accounts?.find((a) => a.id === 'gunluk-kasa');
-        if (gk) return Number(gk.initialBalance) || 0;
+  // Başlangıç avansı (hiç önceki gün yokken)
+  let currentCarryOver = 0;
+  if (gunlukKasaAccount && (gunlukKasaAccount.id === 'gunluk-kasa' || gunlukKasaAccount.isDefault || gunlukKasaAccount.type === 'cash')) {
+    currentCarryOver = Number(gunlukKasaAccount.initialBalance) || 0;
+  } else {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = localStorage.getItem('restoran_muhasebe_accounts_v1');
+        if (raw) {
+          const accounts: FinancialAccount[] = JSON.parse(raw);
+          const gk = accounts?.find((a) => a.id === 'gunluk-kasa' || a.isDefault || a.type === 'cash');
+          if (gk) currentCarryOver = Number(gk.initialBalance) || 0;
+        }
       }
+    } catch {
+      // ignore
     }
-  } catch {
-    // ignore
   }
 
-  if (gunlukKasaAccount) {
-    return Number(gunlukKasaAccount.initialBalance) || 0;
+  if (prevEntries.length === 0) {
+    return Math.round(currentCarryOver * 100) / 100;
   }
 
-  return 0;
+  // Fallback expenses, invoices, accountTransactions from localStorage if not provided
+  let expList = expenses;
+  if (!expList && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem('restoran_muhasebe_expenses_clean_v2');
+      if (raw) expList = JSON.parse(raw);
+    } catch {}
+  }
+  expList = expList || [];
+
+  let invList = invoices;
+  if (!invList && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem('restoran_muhasebe_invoices_clean_v2');
+      if (raw) invList = JSON.parse(raw);
+    } catch {}
+  }
+  invList = invList || [];
+
+  let txList = accountTransactions;
+  if (!txList && typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const raw = localStorage.getItem('restoran_muhasebe_account_txs_v1');
+      if (raw) txList = JSON.parse(raw);
+    } catch {}
+  }
+  txList = txList || [];
+
+  // Zincirleme canlı hesaplama:
+  for (const entry of prevEntries) {
+    // 1) Bu günün açılış kasası:
+    const dayOpeningCash = entry.isOpeningCashManual
+      ? Number(entry.openingCash) || 0
+      : currentCarryOver;
+
+    // 2) Bu günün ertesi güne devir tutarı:
+    if (entry.status === 'closed') {
+      if (entry.closingCarryOver !== undefined && entry.closingCarryOver !== null) {
+        currentCarryOver = Number(entry.closingCarryOver) || 0;
+      } else if (entry.actualCashInHand !== undefined && Number(entry.actualCashInHand) > 0) {
+        currentCarryOver = Number(entry.actualCashInHand) || 0;
+      } else {
+        currentCarryOver = dayOpeningCash;
+      }
+    } else {
+      // Önceki gün kapalı değilse canlı expectedCash'i hesapla
+      const liveEntry: DailyEntry = {
+        ...entry,
+        openingCash: dayOpeningCash,
+      };
+      const reg = calculateDailyRegister(liveEntry, expList, invList, txList, gunlukKasaAccount);
+      currentCarryOver = reg.expectedCash;
+    }
+  }
+
+  return Math.round(currentCarryOver * 100) / 100;
 }
 
 /**
@@ -344,7 +444,7 @@ export function getAnaKasaBalanceBeforeDate(
   _accountTransactions: AccountTransaction[] = [],
   mainAccount?: FinancialAccount
 ): number {
-  return getPreviousDayClosingCarryOver(date, entries, mainAccount);
+  return getPreviousDayClosingCarryOver(date, entries, mainAccount, _expenses, _invoices, _accountTransactions);
 }
 
 /**

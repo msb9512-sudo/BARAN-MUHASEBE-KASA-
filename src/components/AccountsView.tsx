@@ -39,6 +39,7 @@ import {
 } from '../types';
 import { formatCurrency, formatDateTR, parseNumberInput, getTodayIsoDate } from '../utils/formatters';
 import { calculateAccountBalance, calculateBanknoteTotal } from '../utils/storage';
+import { hasDailyEntryData } from '../utils/calculations';
 
 import { SmartMoneyInput } from './SmartMoneyInput';
 
@@ -157,10 +158,13 @@ export const AccountsView: React.FC<AccountsViewProps> = ({
     return [...entryList].filter((e) => Boolean(e?.date)).sort((a, b) => b.date.localeCompare(a.date));
   }, [entryList]);
 
-  // En son kayıtlı günün tarihi
+  // En son kayıtlı ve veri girilmiş günün tarihi
   const latestRegisteredDate = useMemo(() => {
-    return sortedEntries[0]?.date || '';
-  }, [sortedEntries]);
+    const entryWithData = sortedEntries.find((e) =>
+      hasDailyEntryData(e, expenses, invoices, accountTransactions)
+    );
+    return entryWithData?.date || sortedEntries[0]?.date || '';
+  }, [sortedEntries, expenses, invoices, accountTransactions]);
 
   // En son açık günün tarihi (seçili gün kapalıysa veya geçmişte kalmışsa bu tarih kullanılır)
   const latestOpenDate = useMemo(() => {

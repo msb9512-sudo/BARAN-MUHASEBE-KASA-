@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
   CalendarDays,
   FileSpreadsheet,
@@ -53,9 +53,68 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
   onSelectDate,
   onNavigate,
 }) => {
-  const [selectedMonth, setSelectedMonth] = useState('2026-08');
+  const entriesList = useMemo<DailyEntry[]>(() => {
+    return Array.isArray(entries) ? entries : Object.values(entries || {});
+  }, [entries]);
 
-  const summary = calculateMonthlySummary(selectedMonth, entries, expenses, invoices);
+  const { monthsList, defaultMonth } = useMemo(() => {
+    const today = new Date();
+    const currentMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const monthsSet = new Set<string>();
+    monthsSet.add(currentMonth);
+
+    entriesList.forEach((e) => {
+      if (e && e.date && e.date.length >= 7) {
+        monthsSet.add(e.date.slice(0, 7));
+      }
+    });
+
+    const sorted = Array.from(monthsSet).sort((a, b) => b.localeCompare(a));
+
+    const monthHasData = (m: string) => {
+      const monthEntries = entriesList.filter((e) => e && e.date && e.date.startsWith(m));
+      const hasEntriesWithData = monthEntries.some(
+        (e) =>
+          (Number(e.cashTotal) || 0) > 0 ||
+          (Number(e.creditCardTotal) || 0) > 0 ||
+          (Number(e.actualCashInHand) || 0) > 0 ||
+          (Number(e.vegaReport?.totalSales) || 0) > 0 ||
+          (e.posReports && e.posReports.some((p) => (Number(p.creditCardTotal) || 0) > 0)) ||
+          e.status === 'closed' ||
+          e.isOpeningCashManual
+      );
+      if (hasEntriesWithData) return true;
+      if (expenses.some((exp) => exp.isActive && exp.date && exp.date.startsWith(m))) return true;
+      if (invoices.some((inv) => inv.isActive && inv.date && inv.date.startsWith(m))) return true;
+      return false;
+    };
+
+    let chosen = currentMonth;
+    if (!monthHasData(currentMonth)) {
+      const latestWithData = sorted.find(monthHasData);
+      if (latestWithData) {
+        chosen = latestWithData;
+      }
+    }
+
+    const list = sorted.map((m) => ({
+      value: m,
+      label: getMonthNameTR(m),
+    }));
+
+    return { monthsList: list, defaultMonth: chosen };
+  }, [entriesList, expenses, invoices]);
+
+  const [selectedMonth, setSelectedMonth] = useState<string>(defaultMonth);
+
+  useEffect(() => {
+    // If current selectedMonth is not in the list, fallback to defaultMonth
+    if (!monthsList.some((m) => m.value === selectedMonth)) {
+      setSelectedMonth(defaultMonth);
+    }
+  }, [monthsList, defaultMonth, selectedMonth]);
+
+  const summary = calculateMonthlySummary(selectedMonth, entriesList, expenses, invoices);
 
   // Group expenses by category for this month
   const currentMonthExpenses = expenses.filter(
@@ -71,7 +130,6 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
 
   // Product groups aggregation across the month
   const groupMap: Record<string, number> = {};
-  const entriesList: DailyEntry[] = Array.isArray(entries) ? entries : Object.values(entries);
   entriesList
     .filter((e) => e && e.date && e.date.startsWith(selectedMonth))
     .forEach((e) => {
@@ -81,14 +139,6 @@ export const MonthlyReportView: React.FC<MonthlyReportViewProps> = ({
     });
   const sortedProductGroups = Object.entries(groupMap).sort((a, b) => b[1] - a[1]);
   const totalGroupSales = sortedProductGroups.reduce((s, g) => s + g[1], 0);
-
-  const monthsList = [
-    { value: '2026-08', label: 'Ağustos 2026' },
-    { value: '2026-07', label: 'Temmuz 2026' },
-    { value: '2026-06', label: 'Haziran 2026' },
-    { value: '2026-05', label: 'Mayıs 2026' },
-    { value: '2026-04', label: 'Nisan 2026' },
-  ];
 
   return (
     <div className="space-y-6 pb-12">

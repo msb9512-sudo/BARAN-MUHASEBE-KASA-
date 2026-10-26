@@ -343,7 +343,10 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                           const autoDevir = getPreviousDayClosingCarryOver(
                             currentEntry.date,
                             allEntries,
-                            gunlukKasaAccount
+                            gunlukKasaAccount,
+                            expenses,
+                            invoices,
+                            accountTransactions
                           );
                           onUpdateEntry({
                             ...currentEntry,
@@ -778,7 +781,10 @@ export const DailyClosingView: React.FC<DailyClosingViewProps> = ({
                               const autoDevir = getPreviousDayClosingCarryOver(
                                 currentEntry.date,
                                 allEntries,
-                                gunlukKasaAccount
+                                gunlukKasaAccount,
+                                expenses,
+                                invoices,
+                                accountTransactions
                               );
                               onUpdateEntry({
                                 ...currentEntry,
